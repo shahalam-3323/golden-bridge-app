@@ -1,0 +1,47 @@
+body { background-color: #0b0b0b; color: white; font-family: sans-serif; margin: 0; padding: 0; }
+
+.app-container { padding: 20px; max-width: 500px; margin: 0 auto; }
+
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.header h2 { font-size: 18px; letter-spacing: 1px; }
+.menu-icon { font-size: 24px; color: #e5b94f; }
+
+.top-section h1 { font-size: 28px; font-weight: bold; line-height: 1.2; }
+.highlight { color: #e5b94f; }
+.subtitle { color: #aaa; font-size: 14px; margin: 10px 0 20px; }
+
+.currency-toggle { display: inline-flex; background: #222; border-radius: 30px; padding: 5px; margin-bottom: 25px; }
+.currency-toggle button { border: none; padding: 8px 20px; border-radius: 30px; font-weight: bold; cursor: pointer; }
+.currency-toggle .active { background: #e5b94f; color: #000; }
+.currency-toggle .inactive { background: transparent; color: #aaa; }
+
+.cards-container { display: flex; flex-direction: column; gap: 15px; }
+
+.card { padding: 20px; border-radius: 16px; position: relative; color: #000; }
+.card.silver { background: #e0e5ec; }
+.card.gold { background: linear-gradient(135deg, #fce181 0%, #e5b94f 100%); }
+.card.diamond { background: #2196F3; color: white; }
+.card.platinum { background: #2c2c2e; color: #aaa; }
+
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+.card-title { font-size: 16px; font-weight: bold; font-style: italic; color: #555; }
+.card.platinum .card-title { color: #fff; }
+.deposit-text { text-align: right; font-size: 10px; line-height: 1.2; }
+.deposit-text strong { font-size: 14px; }
+
+.card-body { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; }
+.chip-icon { font-size: 28px; }
+.price-info { display: flex; flex-direction: column; }
+.price-info .label { font-size: 9px; text-transform: uppercase; color: #555; }
+.price { font-size: 24px; margin: 0; }
+.card.platinum .price { color: #fff; font-weight: normal; }
+.card.gold .price, .card.diamond .price, .card.platinum .price { color: #000; }
+
+.card-footer { display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.1); font-size: 10px; }
+.card-footer .label { color: #555; display: block; margin-bottom: 2px; }
+.card-footer .value { font-weight: bold; font-size: 12px; display: block; }
+.name { font-weight: bold; font-size: 12px; margin-top: 5px; display: block; color: #000; }
+
+.action-section { display: flex; gap: 15px; margin-top: 20px; flex-wrap: wrap; }
+.join-btn { background: #e5b94f; border: none; padding: 15px 40px; border-radius: 8px; font-weight: bold; flex: 1; cursor: pointer; }
+.details-btn { background: #1a1a1a; color: white; border: none; padding: 15px 40px; border-radius: 8px; font-weight: bold; flex: 1; cursor: pointer; }
