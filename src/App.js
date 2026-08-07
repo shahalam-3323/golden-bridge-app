@@ -7,26 +7,21 @@ import Login from './Login';
 import AdminPanel from './AdminPanel';
 import './App.css';
 
-// 🔴 IMPORTANT: Isko apne Firebase Admin user ki UID se replace kar do!
-const ADMIN_UID = "T5yqL9zNUMhRmtWMc4WzFHmXZAs2"; 
+const ADMIN_UID = "PASTE_YOUR_ADMIN_USER_UID_HERE"; 
 
 function AppContent() {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [livePrice, setLivePrice] = useState(50000.06);
-  
-  // Notification States
   const [hasUnread, setHasUnread] = useState(false);
   const [showLoginPopup, setShowLoginPopup] = useState(false);
   const [currentNotif, setCurrentNotif] = useState({ title: 'Welcome!', message: 'Stay tuned for updates.' });
   const [notifId, setNotifId] = useState(null);
 
-  // 1. Auth Listener & User Data
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
-        // User data fetch karo
         const userRef = doc(db, "users", currentUser.uid);
         const unsubData = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -39,7 +34,6 @@ function AppContent() {
     return () => unsubscribeAuth();
   }, []);
 
-  // 2. Real-Time Notification Listener (User Dashboard par)
   useEffect(() => {
     if (user) {
       const q = query(collection(db, 'notifications'));
@@ -47,18 +41,14 @@ function AppContent() {
         let unreadFound = false;
         let latestNotif = null;
         let latestId = null;
-        
-        // Loop through all notifications
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Check if user hasn't read it yet
           if (data.isReadBy && !data.isReadBy.includes(user.uid)) {
             unreadFound = true;
             latestNotif = data;
             latestId = doc.id;
           }
         });
-
         setHasUnread(unreadFound);
         if (unreadFound && latestNotif) {
           setCurrentNotif({ title: latestNotif.title, message: latestNotif.message });
@@ -69,7 +59,6 @@ function AppContent() {
     }
   }, [user]);
 
-  // 3. Live Price Simulation
   useEffect(() => {
     const interval = setInterval(() => {
       setLivePrice((prev) => {
@@ -81,13 +70,11 @@ function AppContent() {
     return () => clearInterval(interval);
   }, []);
 
-  // 4. Close & Mark Notification as Read
   const closeNotificationPopup = async () => {
     setShowLoginPopup(false);
     setHasUnread(false);
     if (notifId && user) {
       try {
-        // Firestore mein user ko read list mein add karo
         await updateDoc(doc(db, 'notifications', notifId), {
           isReadBy: arrayUnion(user.uid)
         });
@@ -112,7 +99,6 @@ function AppContent() {
 
   return (
     <div className="app-container">
-      {/* Header with Bell */}
       <div className="header">
         <h2>GOLDEN BRIDGE</h2>
         <div className="header-right">
@@ -125,7 +111,6 @@ function AppContent() {
         </div>
       </div>
 
-      {/* Hero Section */}
       <div className="top-section">
         <h1>Premium <span className="highlight">Wealth</span> Generation</h1>
         <p className="subtitle">Welcome, {userData.fullName}</p>
@@ -135,7 +120,6 @@ function AppContent() {
         </div>
       </div>
 
-      {/* Daily Profit & Withdraw */}
       <div className="daily-profit-section">
         <div className="profit-info">
           <span className="profit-label">Your Accumulated Profit</span>
@@ -145,7 +129,6 @@ function AppContent() {
       </div>
       <div className="separator"></div>
 
-      {/* Cards */}
       <div className="cards-container">
         {cardsData.map((card, idx) => (
           <div key={card.id} className={`card-wrapper ${card.locked ? 'locked' : ''}`}>
@@ -189,16 +172,16 @@ function AppContent() {
         ))}
       </div>
 
-      {/* --- NEW FOOTER WITH TELEGRAM BUTTON --- */}
       <div className="footer">
         <div className="footer-links">
-<a href="/terms" onClick={(e) => e.preventDefault()}>Terms of Service</a> | 
-<a href="/privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a> | 
-<a href="/risk" onClick={(e) => e.preventDefault()}>Risk Acknowledgment</a>        </div>
-<a href="https://t.me/your_channel" target="_blank" rel="noreferrer" className="telegram-btn">✈️ Join Our Telegram Channel</a>        <div className="footer-disclaimer">© 2026 Golden Bridge Investments. All rights reserved.</div>
+          <a href="/terms" onClick={(e) => e.preventDefault()}>Terms of Service</a> | 
+          <a href="/privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a> | 
+          <a href="/risk" onClick={(e) => e.preventDefault()}>Risk Acknowledgment</a>
+        </div>
+        <a href="https://t.me/your_channel" target="_blank" rel="noreferrer" className="telegram-btn">✈️ Join Our Telegram Channel</a>
+        <div className="footer-disclaimer">© 2026 Golden Bridge Investments. All rights reserved.</div>
       </div>
 
-      {/* --- LOGIN NOTIFICATION MODAL --- */}
       {showLoginPopup && (
         <div className="modal-overlay" style={{display:'flex'}}>
           <div className="modal-content">
@@ -212,7 +195,6 @@ function AppContent() {
   );
 }
 
-// --- MAIN APP WITH ROUTING ---
 function App() {
   const [user, setUser] = useState(null);
   useEffect(() => {
@@ -225,16 +207,10 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Agar user admin hai toh /admin par jaayega */}
-        <Route 
-          path="/admin" 
-          element={user && user.uid === ADMIN_UID ? <AdminPanel /> : <Navigate to="/" />} 
-        />
-        {/* Baaki sab users / dashboard par */}
+        <Route path="/admin" element={user && user.uid === ADMIN_UID ? <AdminPanel /> : <Navigate to="/" />} />
         <Route path="/*" element={<AppContent />} />
       </Routes>
     </BrowserRouter>
   );
 }
-
 export default App;
