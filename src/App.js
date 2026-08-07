@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, onSnapshot, collection, query, addDoc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, onSnapshot, collection, query, updateDoc, arrayUnion } from 'firebase/firestore';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './Login';
 import AdminPanel from './AdminPanel';
@@ -192,10 +192,10 @@ function AppContent() {
       {/* --- NEW FOOTER WITH TELEGRAM BUTTON --- */}
       <div className="footer">
         <div className="footer-links">
-          <a href="#">Terms of Service</a> | <a href="#">Privacy Policy</a> | <a href="#">Risk Acknowledgment</a>
-        </div>
-        <a href="https://t.me/your_channel" target="_blank" className="telegram-btn">✈️ Join Our Telegram Channel</a>
-        <div className="footer-disclaimer">© 2026 Golden Bridge Investments. All rights reserved.</div>
+<a href="/terms" onClick={(e) => e.preventDefault()}>Terms of Service</a> | 
+<a href="/privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a> | 
+<a href="/risk" onClick={(e) => e.preventDefault()}>Risk Acknowledgment</a>        </div>
+<a href="https://t.me/your_channel" target="_blank" rel="noreferrer" className="telegram-btn">✈️ Join Our Telegram Channel</a>        <div className="footer-disclaimer">© 2026 Golden Bridge Investments. All rights reserved.</div>
       </div>
 
       {/* --- LOGIN NOTIFICATION MODAL --- */}
