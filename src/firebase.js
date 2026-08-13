@@ -2,14 +2,14 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// ✅ बिल्कुल सही Config (Firebase Console से कॉपी की हुई)
+// ✅ आपकी नई golden-bridge-v2 की पूरी तरह सही Config
 const firebaseConfig = {
-  apiKey: "AIzaSyCySt4xuFA8N90rc_g4lmY5AH0s4-psbSM",
-  authDomain: "golden-bridge-app.firebaseapp.com",
-  projectId: "golden-bridge-app",
-  storageBucket: "golden-bridge-app.firebasestorage.app",
-  messagingSenderId: "898635643758",
-  appId: "1:898635643758:web:c8670f67f5e3f1481cdf7f"
+  apiKey: "AIzaSyAeD6ya-LWahcnukCxna0xCqFZo4l6m8Kw",
+  authDomain: "golden-bridge-v2.firebaseapp.com",
+  projectId: "golden-bridge-v2",
+  storageBucket: "golden-bridge-v2.firebasestorage.app",
+  messagingSenderId: "885406712492",
+  appId: "1:885406712492:web:c69806a08ca92b15769509"
 };
 
 const app = initializeApp(firebaseConfig);
