@@ -1,42 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot 
-} from 'firebase/firestore';
+import { auth, db } from './firebase'; // ✅ अपनी firebase.js से import करें
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, onSnapshot, setDoc, collection, query, orderBy } from 'firebase/firestore';
 import AdminPanel from './AdminPanel';
 import './App.css';
 
-// ⚠️ Firebase Configuration - Replace with your own Firebase keys if needed
-const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
-};
-
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-// ⚠️ Paste your Admin UID here 
-// ⚠️ Admin UID updated
+// ✅ आपकी असली, काम करने वाली Firebase Admin UID
 const ADMIN_UID = "T5yqL9zNUMhRmtWMc4WzFHmXZAs2";
+
 // --- Custom Hook for Time-Elapsed Portfolio Simulation ---
 function useRealisticPortfolio(initialAmount = 100000, targetMonths = 24) {
   const [currentValue, setCurrentValue] = useState(initialAmount);
@@ -48,14 +19,12 @@ function useRealisticPortfolio(initialAmount = 100000, targetMonths = 24) {
     const growthPerSecond = (targetValue - initialAmount) / totalSeconds;
 
     const interval = setInterval(() => {
-      // Base dynamic growth + subtle market noise tick
       const noise = (Math.random() - 0.48) * 120;
       setCurrentValue(prev => {
         const nextVal = Math.max(initialAmount, prev + growthPerSecond + noise);
         setFlash(nextVal >= prev ? 'flash-up' : 'flash-down');
         return nextVal;
       });
-
       setTimeout(() => setFlash(''), 600);
     }, 2000);
 
@@ -65,7 +34,7 @@ function useRealisticPortfolio(initialAmount = 100000, targetMonths = 24) {
   return { currentValue, flash };
 }
 
-// --- Isolated Child Component for Individual Cards (Prevents Hook Rule Violation) [cite: 196] ---
+// --- Isolated Child Component for Individual Cards ---
 function PortfolioCard({ card, currency, exchangeRate }) {
   const { currentValue, flash } = useRealisticPortfolio(card.initial, 24);
 
@@ -88,19 +57,12 @@ function PortfolioCard({ card, currency, exchangeRate }) {
 
       <div className="sparkline-container">
         <svg viewBox="0 0 100 25" width="100%" height="100%">
-          <path 
-            d="M 0 20 Q 25 5, 50 15 T 100 5" 
-            fill="none" 
-            stroke="#10b981" 
-            strokeWidth="2" 
-          />
+          <path d="M 0 20 Q 25 5, 50 15 T 100 5" fill="none" stroke="#10b981" strokeWidth="2" />
         </svg>
       </div>
 
       <div className="progress-info">
-        <small style={{ color: '#94a3b8' }}>
-          Target: {currencySymbol}{targetPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-        </small>
+        <small style={{ color: '#94a3b8' }}>Target: {currencySymbol}{targetPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</small>
         <div className="progress-bar-bg">
           <div className="progress-bar-fill" style={{ width: `${progressPercent}%` }}></div>
         </div>
@@ -112,7 +74,7 @@ function PortfolioCard({ card, currency, exchangeRate }) {
 // --- Main App Component ---
 export default function App() {
   const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true); // Fixed refresh bug [cite: 154, 155]
+  const [authLoading, setAuthLoading] = useState(true);
   const [userData, setUserData] = useState(null);
   const [isAdminView, setIsAdminView] = useState(false);
 
@@ -125,7 +87,7 @@ export default function App() {
 
   const [socialPopup, setSocialPopup] = useState('');
 
-  // Auth Listener + Clean Unsubscribe Memory Cleanup [cite: 152, 153]
+  // Auth Listener
   useEffect(() => {
     let unsubDoc = null;
 
@@ -133,13 +95,11 @@ export default function App() {
       setUser(currentUser);
 
       if (currentUser) {
-        // Fetch or Initialize User Profile [cite: 150]
         const userRef = doc(db, 'users', currentUser.uid);
         unsubDoc = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
             setUserData(docSnap.data());
           } else {
-            // Fallback for new user [cite: 150]
             const initialData = { email: currentUser.email, accumulatedProfit: 5400 };
             setDoc(userRef, initialData);
             setUserData(initialData);
