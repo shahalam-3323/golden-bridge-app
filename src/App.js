@@ -10,8 +10,8 @@ import { doc, onSnapshot, setDoc, collection, query, orderBy } from 'firebase/fi
 import AdminPanel from './AdminPanel';
 import './App.css';
 
-// ✅ Firebase Admin User UID
-const ADMIN_UID = "T5yqL9zNUMhRmtWMc4WzFHmXZAs2";
+// ✅ Aapke document ke mutabik sahi Admin UID (Jo 59 se shuru hoti hai)
+const ADMIN_UID = "59uL9zNUMhRmtWMc4WzFHmXZAs2"; 
 
 // --- Custom Hook for Time-Elapsed Portfolio Simulation ---
 function useRealisticPortfolio(initialAmount = 100000, targetMonths = 24) {
@@ -267,7 +267,7 @@ export default function App() {
     : `₹${accumulatedProfit.toLocaleString('en-IN')}`;
 
   return (
-    <div className="app-container">
+    <div className="app-container" style={{ paddingBottom: '80px' }}>
       {/* Header */}
       <nav className="navbar">
         <div className="brand">Golden Bridge</div>
@@ -326,7 +326,7 @@ export default function App() {
 
       {/* Social Proof Alerts */}
       {socialPopup && (
-        <div className="social-ticker" style={{ position: 'fixed', bottom: '20px', left: '20px', background: '#1e293b', padding: '0.75rem 1.25rem', borderRadius: '30px', borderLeft: '4px solid #10b981', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', color: '#fff', fontSize: '0.9rem', zIndex: 100 }}>
+        <div className="social-ticker" style={{ position: 'fixed', bottom: '80px', left: '20px', background: '#1e293b', padding: '0.75rem 1.25rem', borderRadius: '30px', borderLeft: '4px solid #10b981', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', color: '#fff', fontSize: '0.9rem', zIndex: 100 }}>
           {socialPopup}
         </div>
       )}
@@ -354,6 +354,18 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ✅ Legal Footer & Safety Disclaimer as requested in PDF */}
+      <footer style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#0f172a', borderTop: '1px solid #1e293b', padding: '10px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', zIndex: 99, fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
+        <div style={{ display: 'flex', gap: '15px' }}>
+          <span style={{ cursor: 'pointer' }}>Terms of Service</span>
+          <span style={{ cursor: 'pointer' }}>Privacy Policy</span>
+          <span style={{ cursor: 'pointer' }}>Risk Disclosure</span>
+        </div>
+        <div>
+          ⚠️ <strong>Risk Warning:</strong> This is a premium mathematical asset simulation app. It is NOT a real trading platform.
+        </div>
+      </footer>
     </div>
   );
 }
