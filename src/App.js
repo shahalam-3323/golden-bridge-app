@@ -1,3 +1,4 @@
+import PremiumCard from './components/PremiumCard'; // ✅ नया PremiumCard इम्पोर्ट
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase'; 
 import { 
@@ -39,70 +40,23 @@ function useRealisticPortfolio(initialAmount = 100000, targetMonths = 24) {
   return { currentValue, flash };
 }
 
-// --- Premium Card Component (With User Name, Lock/Unlock, Scarcity) ---
-function PremiumCard({ card, currency, exchangeRate, isLocked, onUnlock, userName }) {
+// ✅ Wrapper Component: यह हुक चलाता है और नए PremiumCard को डेटा पास करता है
+function CardWrapper({ card, currency, exchangeRate, isLocked, onUnlock, userName }) {
   const { currentValue, flash } = useRealisticPortfolio(card.initial, 24);
-  const displayValue = isLocked ? card.initial : currentValue;
-  const displayFlash = isLocked ? '' : flash;
-
-  const displayPrice = currency === 'USD' ? displayValue * exchangeRate : displayValue;
-  const targetPrice = currency === 'USD' ? (card.initial * 2) * exchangeRate : (card.initial * 2);
-  const currencySymbol = currency === 'USD' ? '$' : '₹';
-  const progressPercent = Math.min(100, Math.max(0, ((displayValue - card.initial) / card.initial) * 100));
-
+  
   return (
-    <div className={`card-wrapper ${isLocked ? 'locked' : ''}`}>
-      {/* Scarcity Badge - Only for Locked Cards */}
-      {isLocked && (
-        <div className="scarcity-badge">
-          <span className="highlight-text">✨ WHAT YOU MISS</span>
-          <span className="sub-text">Unlock Premium Returns</span>
-        </div>
-      )}
-      
-      <div className={`card ${card.color}`}>
-        <div className="card-header">
-          <span className="card-title">{card.name}</span>
-          <span className="deposit-text">DEPOSIT<br/><strong>{currencySymbol}{card.initial.toLocaleString('en-IN')}</strong></span>
-        </div>
-
-        <div className="card-body">
-          <div className="chip-icon">💳</div>
-          <div className="price-info">
-            <span className="label">LIVE PORTFOLIO VALUE</span>
-            <div className={`price ${displayFlash}`}>
-              {currencySymbol}{displayPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-            </div>
-            {/* Progress Bar - Only for Unlocked */}
-            {!isLocked && (
-              <div className="progress-container">
-                <div className="progress-bar" style={{ width: `${progressPercent}%` }}></div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="card-footer">
-          <div className="validity">
-            <span className="label">VALID THRU</span>
-            <span className="value">24 MONTHS</span>
-            <span className="name">{userName || 'Valued Investor'}</span>
-          </div>
-          <div className="target">
-            <span className="label">TARGET</span>
-            <span className="value">{currencySymbol}{targetPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Action Buttons for Locked Cards */}
-      {isLocked && (
-        <div className="card-actions">
-          <button className="unlock-btn" onClick={onUnlock}>UNLOCK CARD</button>
-          <button className="details-btn">DETAILS</button>
-        </div>
-      )}
-    </div>
+    <PremiumCard
+      card={card}
+      currency={currency}
+      exchangeRate={exchangeRate}
+      isLocked={isLocked}
+      onUnlock={onUnlock}
+      userName={userName}
+      liveProfitValue={currentValue}
+      displayFlash={flash === 'flash-up' ? 'up' : flash === 'flash-down' ? 'down' : null}
+      progressPercent={Math.min(100, Math.max(0, ((currentValue - card.initial) / card.initial) * 100))}
+      targetPrice={card.target}
+    />
   );
 }
 
@@ -262,10 +216,11 @@ export default function App() {
     return <AdminPanel user={user} onBack={() => setIsAdminView(false)} />;
   }
 
+  // ✅ Cards List with Target added
   const cardsList = [
-    { id: 1, name: 'SILVER CARD', color: 'silver', initial: 50000, locked: false },
-    { id: 2, name: 'GOLDEN CARD', color: 'gold', initial: 100000, locked: true },
-    { id: 3, name: 'DIAMOND CARD', color: 'diamond', initial: 200000, locked: true },
+    { id: 1, name: 'SILVER CARD', color: 'silver', initial: 50000, target: 100000, locked: false },
+    { id: 2, name: 'GOLDEN CARD', color: 'gold', initial: 100000, target: 200000, locked: true },
+    { id: 3, name: 'DIAMOND CARD', color: 'diamond', initial: 200000, target: 400000, locked: true },
   ];
 
   const accumulatedProfit = userData?.accumulatedProfit || 5400;
@@ -314,10 +269,10 @@ export default function App() {
 
       <div className="separator"></div>
 
-      {/* Premium Cards Grid */}
+      {/* Premium Cards Grid - using CardWrapper */}
       <div className="cards-container">
         {cardsList.map(card => (
-          <PremiumCard
+          <CardWrapper
             key={card.id}
             card={card}
             currency={currency}
