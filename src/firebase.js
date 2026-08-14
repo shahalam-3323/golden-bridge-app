@@ -2,12 +2,10 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// 🔴 डिबग लाइन (Gemini ne isko zaroori bataya tha)
-console.log("Firebase API Key Status:", process.env.REACT_APP_FIREBASE_API_KEY ? "Loaded Successfully" : "MISSING/UNDEFINED");
-
+// यहाँ हमने आपकी असली की (Key) को सीधे कोड में लिख दिया है
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: "golden-bridge-v2.firebaseapp.com",
+  apiKey: "AIzaSyAeD6ya-LWahcnukCxna0xCqFZo4l6m8Kw", 
+  authDomain: "://firebaseapp.com",
   projectId: "golden-bridge-v2",
   storageBucket: "golden-bridge-v2.firebasestorage.app",
   messagingSenderId: "885406712492",
