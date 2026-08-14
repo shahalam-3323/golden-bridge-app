@@ -2,8 +2,11 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
+// Debugging: Ye check karne ke liye ki Vercel environment variable bhej raha hai ya nahi
+console.log("Firebase API Key Status:", process.env.REACT_APP_FIREBASE_API_KEY ? "Loaded Successfully" : "MISSING/UNDEFINED");
+
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY, // ✅ यह लाइन बदली गई है
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: "golden-bridge-v2.firebaseapp.com",
   projectId: "golden-bridge-v2",
   storageBucket: "golden-bridge-v2.firebasestorage.app",
