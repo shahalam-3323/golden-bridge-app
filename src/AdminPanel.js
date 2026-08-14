@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { db } from './App';
+// ✅ Line 2 ko badal kar humne sahi rasta (./firebase) de diya hai
+import { db } from './firebase'; 
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function AdminPanel({ user, onBack }) {
