@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from './firebase'; // ✅ अपनी firebase.js से import करें
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { auth, db } from './firebase'; 
+import { 
+  onAuthStateChanged, 
+  signOut, 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword 
+} from 'firebase/auth';
 import { doc, onSnapshot, setDoc, collection, query, orderBy } from 'firebase/firestore';
 import AdminPanel from './AdminPanel';
 import './App.css';
 
-// ✅ आपकी असली, काम करने वाली Firebase Admin UID
+// ✅ Firebase Admin User UID
 const ADMIN_UID = "T5yqL9zNUMhRmtWMc4WzFHmXZAs2";
 
 // --- Custom Hook for Time-Elapsed Portfolio Simulation ---
@@ -71,6 +76,87 @@ function PortfolioCard({ card, currency, exchangeRate }) {
   );
 }
 
+// --- Dynamic AuthScreen Component (Login / Sign-Up Box) ---
+function AuthScreen() {
+  const [isSignUp, setIsSignUp] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (isSignUp) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err.message.replace("Firebase: ", ""));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="auth-wrapper" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#0f172a', color: '#fff' }}>
+      <div className="auth-card" style={{ background: '#1e293b', padding: '2.5rem', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.5)', width: '100%', maxWidth: '400px' }}>
+        <h2 style={{ textAlign: 'center', marginBottom: '1.5rem', fontSize: '1.8rem', color: '#38bdf8' }}>
+          {isSignUp ? 'Create Account' : 'Welcome Back'}
+        </h2>
+        
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <label style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Email Address</label>
+            <input 
+              type="email" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              required 
+              style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: '1rem' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            <label style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Password</label>
+            <input 
+              type="password" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              required 
+              style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: '1rem' }}
+            />
+          </div>
+
+          {error && <p style={{ color: '#ef4444', fontSize: '0.9rem', margin: '0' }}>{error}</p>}
+
+          <button 
+            type="submit" 
+            disabled={loading}
+            style={{ background: '#38bdf8', color: '#0f172a', padding: '0.75rem', borderRadius: '6px', border: 'none', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', marginTop: '0.5rem' }}
+          >
+            {loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Login'}
+          </button>
+        </form>
+
+        <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.9rem', color: '#94a3b8' }}>
+          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+          <span 
+            onClick={() => { setIsSignUp(!isSignUp); setError(''); }} 
+            style={{ color: '#38bdf8', cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            {isSignUp ? 'Login' : 'Sign Up'}
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
 // --- Main App Component ---
 export default function App() {
   const [user, setUser] = useState(null);
@@ -132,7 +218,7 @@ export default function App() {
 
   // Dynamic USD Exchange Rate Fetch
   useEffect(() => {
-    fetch('https://open.er-api.com/v6/latest/INR')
+    fetch('https://er-api.com')
       .then(res => res.json())
       .then(data => {
         if (data && data.rates && data.rates.USD) {
@@ -238,88 +324,36 @@ export default function App() {
         ))}
       </div>
 
-      {/* Notification Pop-up Modal */}
-      {showNotificationModal && (
-        <div className="modal-overlay" onClick={() => setShowNotificationModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h3>Platform Notifications</h3>
-            <hr style={{ borderColor: '#334155', margin: '12px 0' }} />
-            {notifications.length === 0 ? (
-              <p style={{ color: '#94a3b8' }}>No notifications yet.</p>
-            ) : (
-              notifications.map(n => (
-                <div key={n.id} style={{ marginBottom: '12px' }}>
-                  <strong style={{ color: '#f59e0b' }}>{n.title}</strong>
-                  <p style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>{n.message}</p>
-                </div>
-              ))
-            )}
-            <button className="btn-primary" style={{ marginTop: '16px', width: '100%' }} onClick={() => setShowNotificationModal(false)}>
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Live Social Proof Ticker */}
+      {/* Social Proof Alerts */}
       {socialPopup && (
-        <div className="social-ticker">
+        <div className="social-ticker" style={{ position: 'fixed', bottom: '20px', left: '20px', background: '#1e293b', padding: '0.75rem 1.25rem', borderRadius: '30px', borderLeft: '4px solid #10b981', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', color: '#fff', fontSize: '0.9rem', zIndex: 100 }}>
           {socialPopup}
         </div>
       )}
-    </div>
-  );
-}
 
-// Simple Login/Signup Screen
-function AuthScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [isSignup, setIsSignup] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    setError('');
-    try {
-      if (isSignup) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal-content">
-        <h2>{isSignup ? 'Create Account' : 'Login to Golden Bridge'}</h2>
-        <form onSubmit={handleAuth} style={{ marginTop: '16px' }}>
-          <div className="form-group">
-            <label>Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
+      {/* Notifications Modal */}
+      {showNotificationModal && (
+        <div className="modal-overlay" onClick={() => setShowNotificationModal(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ background: '#1e293b', padding: '2rem', borderRadius: '12px', width: '90%', maxWidth: '500px', color: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h3 style={{ margin: 0, color: '#38bdf8' }}>Platform Updates</h3>
+              <button onClick={() => setShowNotificationModal(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '300px', overflowY: 'auto' }}>
+              {notifications.length === 0 ? (
+                <p style={{ color: '#94a3b8' }}>No updates right now.</p>
+              ) : (
+                notifications.map(n => (
+                  <div key={n.id} style={{ padding: '0.75rem', background: '#0f172a', borderRadius: '6px' }}>
+                    <h4 style={{ margin: '0 0 0.25rem 0', color: '#10b981' }}>{n.title}</h4>
+                    <p style={{ margin: 0, fontSize: '0.9rem', color: '#cbd5e1' }}>{n.message}</p>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <div className="form-group">
-            <label>Password</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-          </div>
-          {error && <p style={{ color: '#ef4444', fontSize: '0.85rem' }}>{error}</p>}
-          <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: '12px' }}>
-            {isSignup ? 'Sign Up' : 'Login'}
-          </button>
-        </form>
-        <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '0.85rem', color: '#94a3b8' }}>
-          {isSignup ? "Already have an account?" : "Don't have an account?"}{' '}
-          <span 
-            style={{ color: '#3b82f6', cursor: 'pointer' }} 
-            onClick={() => setIsSignup(!isSignup)}
-          >
-            {isSignup ? 'Login' : 'Sign Up'}
-          </span>
-        </p>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
