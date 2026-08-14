@@ -2,9 +2,11 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// 🔴 अब Vercel के Environment Variable की ज़रूरत नहीं, सीधा Key डाल रहे हैं
+// 🔴 डिबग लाइन (Gemini ne isko zaroori bataya tha)
+console.log("Firebase API Key Status:", process.env.REACT_APP_FIREBASE_API_KEY ? "Loaded Successfully" : "MISSING/UNDEFINED");
+
 const firebaseConfig = {
-  apiKey: "AIzaSyAeD6ya-LWahcnukCxna0xCqFZo4l6m8Kw", 
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: "golden-bridge-v2.firebaseapp.com",
   projectId: "golden-bridge-v2",
   storageBucket: "golden-bridge-v2.firebasestorage.app",
