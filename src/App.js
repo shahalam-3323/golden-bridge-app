@@ -10,7 +10,7 @@ import { doc, onSnapshot, setDoc, collection, query, orderBy } from 'firebase/fi
 import AdminPanel from './AdminPanel';
 import './App.css';
 
-// ✅ Aapke document ke mutabik sahi Admin UID (Jo 59 se shuru hoti hai)
+// ✅ आपकी नई सही Admin UID
 const ADMIN_UID = "59uL9zNUMhRmtWMc4WzFHmXZAs2"; 
 
 // --- Custom Hook for Time-Elapsed Portfolio Simulation ---
@@ -39,44 +39,74 @@ function useRealisticPortfolio(initialAmount = 100000, targetMonths = 24) {
   return { currentValue, flash };
 }
 
-// --- Isolated Child Component for Individual Cards ---
-function PortfolioCard({ card, currency, exchangeRate }) {
+// --- Premium Card Component (With User Name, Lock/Unlock, Scarcity) ---
+function PremiumCard({ card, currency, exchangeRate, isLocked, onUnlock, userName }) {
   const { currentValue, flash } = useRealisticPortfolio(card.initial, 24);
+  const displayValue = isLocked ? card.initial : currentValue;
+  const displayFlash = isLocked ? '' : flash;
 
-  const displayPrice = currency === 'USD' ? currentValue * exchangeRate : currentValue;
+  const displayPrice = currency === 'USD' ? displayValue * exchangeRate : displayValue;
   const targetPrice = currency === 'USD' ? (card.initial * 2) * exchangeRate : (card.initial * 2);
   const currencySymbol = currency === 'USD' ? '$' : '₹';
-
-  const progressPercent = Math.min(100, Math.max(0, ((currentValue - card.initial) / card.initial) * 100));
+  const progressPercent = Math.min(100, Math.max(0, ((displayValue - card.initial) / card.initial) * 100));
 
   return (
-    <div className="portfolio-card">
-      <div className="card-header">
-        <span className="card-title">{card.title}</span>
-        <span className="badge">{card.risk} Risk</span>
-      </div>
+    <div className={`card-wrapper ${isLocked ? 'locked' : ''}`}>
+      {/* Scarcity Badge - Only for Locked Cards */}
+      {isLocked && (
+        <div className="scarcity-badge">
+          <span className="highlight-text">✨ WHAT YOU MISS</span>
+          <span className="sub-text">Unlock Premium Returns</span>
+        </div>
+      )}
+      
+      <div className={`card ${card.color}`}>
+        <div className="card-header">
+          <span className="card-title">{card.name}</span>
+          <span className="deposit-text">DEPOSIT<br/><strong>{currencySymbol}{card.initial.toLocaleString('en-IN')}</strong></span>
+        </div>
 
-      <div className={`price-display ${flash}`}>
-        {currencySymbol}{displayPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-      </div>
+        <div className="card-body">
+          <div className="chip-icon">💳</div>
+          <div className="price-info">
+            <span className="label">LIVE PORTFOLIO VALUE</span>
+            <div className={`price ${displayFlash}`}>
+              {currencySymbol}{displayPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+            </div>
+            {/* Progress Bar - Only for Unlocked */}
+            {!isLocked && (
+              <div className="progress-container">
+                <div className="progress-bar" style={{ width: `${progressPercent}%` }}></div>
+              </div>
+            )}
+          </div>
+        </div>
 
-      <div className="sparkline-container">
-        <svg viewBox="0 0 100 25" width="100%" height="100%">
-          <path d="M 0 20 Q 25 5, 50 15 T 100 5" fill="none" stroke="#10b981" strokeWidth="2" />
-        </svg>
-      </div>
-
-      <div className="progress-info">
-        <small style={{ color: '#94a3b8' }}>Target: {currencySymbol}{targetPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</small>
-        <div className="progress-bar-bg">
-          <div className="progress-bar-fill" style={{ width: `${progressPercent}%` }}></div>
+        <div className="card-footer">
+          <div className="validity">
+            <span className="label">VALID THRU</span>
+            <span className="value">24 MONTHS</span>
+            <span className="name">{userName || 'Valued Investor'}</span>
+          </div>
+          <div className="target">
+            <span className="label">TARGET</span>
+            <span className="value">{currencySymbol}{targetPrice.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+          </div>
         </div>
       </div>
+
+      {/* Action Buttons for Locked Cards */}
+      {isLocked && (
+        <div className="card-actions">
+          <button className="unlock-btn" onClick={onUnlock}>UNLOCK CARD</button>
+          <button className="details-btn">DETAILS</button>
+        </div>
+      )}
     </div>
   );
 }
 
-// --- Dynamic AuthScreen Component (Login / Sign-Up Box) ---
+// --- Auth Screen (Login / Sign-Up) ---
 function AuthScreen() {
   const [isSignUp, setIsSignUp] = useState(true);
   const [email, setEmail] = useState('');
@@ -104,52 +134,26 @@ function AuthScreen() {
   };
 
   return (
-    <div className="auth-wrapper" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#0f172a', color: '#fff' }}>
-      <div className="auth-card" style={{ background: '#1e293b', padding: '2.5rem', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.5)', width: '100%', maxWidth: '400px' }}>
-        <h2 style={{ textAlign: 'center', marginBottom: '1.5rem', fontSize: '1.8rem', color: '#38bdf8' }}>
-          {isSignUp ? 'Create Account' : 'Welcome Back'}
-        </h2>
-        
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            <label style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Email Address</label>
-            <input 
-              type="email" 
-              value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
-              required 
-              style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: '1rem' }}
-            />
+    <div className="auth-wrapper">
+      <div className="auth-card">
+        <h2>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Email Address</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-            <label style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Password</label>
-            <input 
-              type="password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              required 
-              style={{ padding: '0.75rem', borderRadius: '6px', border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: '1rem' }}
-            />
+          <div className="form-group">
+            <label>Password</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </div>
-
-          {error && <p style={{ color: '#ef4444', fontSize: '0.9rem', margin: '0' }}>{error}</p>}
-
-          <button 
-            type="submit" 
-            disabled={loading}
-            style={{ background: '#38bdf8', color: '#0f172a', padding: '0.75rem', borderRadius: '6px', border: 'none', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', marginTop: '0.5rem' }}
-          >
+          {error && <p className="error-msg">{error}</p>}
+          <button type="submit" disabled={loading} className="btn-primary">
             {loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Login'}
           </button>
         </form>
-
-        <p style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.9rem', color: '#94a3b8' }}>
+        <p className="toggle-account">
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-          <span 
-            onClick={() => { setIsSignUp(!isSignUp); setError(''); }} 
-            style={{ color: '#38bdf8', cursor: 'pointer', textDecoration: 'underline' }}
-          >
+          <span onClick={() => { setIsSignUp(!isSignUp); setError(''); }}>
             {isSignUp ? 'Login' : 'Sign Up'}
           </span>
         </p>
@@ -157,6 +161,7 @@ function AuthScreen() {
     </div>
   );
 }
+
 // --- Main App Component ---
 export default function App() {
   const [user, setUser] = useState(null);
@@ -172,21 +177,21 @@ export default function App() {
   const [hasUnread, setHasUnread] = useState(false);
 
   const [socialPopup, setSocialPopup] = useState('');
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [showReferralModal, setShowReferralModal] = useState(false);
 
   // Auth Listener
   useEffect(() => {
     let unsubDoc = null;
-
     const unsubAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-
       if (currentUser) {
         const userRef = doc(db, 'users', currentUser.uid);
         unsubDoc = onSnapshot(userRef, (docSnap) => {
           if (docSnap.exists()) {
             setUserData(docSnap.data());
           } else {
-            const initialData = { email: currentUser.email, accumulatedProfit: 5400 };
+            const initialData = { email: currentUser.email, fullName: currentUser.displayName || "Valued Investor", accumulatedProfit: 5400 };
             setDoc(userRef, initialData);
             setUserData(initialData);
           }
@@ -196,7 +201,6 @@ export default function App() {
       }
       setAuthLoading(false);
     });
-
     return () => {
       unsubAuth();
       if (unsubDoc) unsubDoc();
@@ -212,13 +216,12 @@ export default function App() {
       setNotifications(list);
       if (list.length > 0) setHasUnread(true);
     });
-
     return () => unsub();
   }, [user]);
 
   // Dynamic USD Exchange Rate Fetch
   useEffect(() => {
-    fetch('https://er-api.com')
+    fetch('https://open.er-api.com/v6/latest/INR')
       .then(res => res.json())
       .then(data => {
         if (data && data.rates && data.rates.USD) {
@@ -228,7 +231,7 @@ export default function App() {
       .catch(() => console.log('Using default exchange rate'));
   }, []);
 
-  // Simulated Social Proof FOMO Ticker
+  // Social Proof FOMO Ticker
   useEffect(() => {
     const alerts = [
       "⚡ Rahul S. (Lucknow) unlocked Gold Wealth Card!",
@@ -243,8 +246,12 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleUnlock = () => {
+    setShowUnlockModal(true);
+  };
+
   if (authLoading) {
-    return <div style={{ color: '#fff', textAlign: 'center', marginTop: '20%' }}>Loading Platform...</div>;
+    return <div className="loading-screen">Loading Platform...</div>;
   }
 
   if (!user) {
@@ -256,9 +263,9 @@ export default function App() {
   }
 
   const cardsList = [
-    { id: 1, title: 'Golden Alpha Portfolio', initial: 100000, risk: 'Moderate' },
-    { id: 2, title: 'Titanium Shield Growth', initial: 250000, risk: 'Low' },
-    { id: 3, title: 'Crypto Yield Multiplier', initial: 50000, risk: 'High' }
+    { id: 1, name: 'SILVER CARD', color: 'silver', initial: 50000, locked: false },
+    { id: 2, name: 'GOLDEN CARD', color: 'gold', initial: 100000, locked: true },
+    { id: 3, name: 'DIAMOND CARD', color: 'diamond', initial: 200000, locked: true },
   ];
 
   const accumulatedProfit = userData?.accumulatedProfit || 5400;
@@ -267,32 +274,25 @@ export default function App() {
     : `₹${accumulatedProfit.toLocaleString('en-IN')}`;
 
   return (
-    <div className="app-container" style={{ paddingBottom: '80px' }}>
+    <div className="app-container">
       {/* Header */}
       <nav className="navbar">
-        <div className="brand">Golden Bridge</div>
+        <div className="brand">GOLDEN BRIDGE</div>
         <div className="nav-actions">
-          <button 
-            className={`currency-btn ${currency === 'INR' ? 'active' : ''}`} 
-            onClick={() => setCurrency('INR')}
-          >
-            INR (₹)
-          </button>
-          <button 
-            className={`currency-btn ${currency === 'USD' ? 'active' : ''}`} 
-            onClick={() => setCurrency('USD')}
-          >
-            USD ($)
-          </button>
-
+          <div className="live-indicator">
+            <span className="pulse-dot"></span> Live
+          </div>
+          <div className="currency-toggle">
+            <button className={`currency-btn ${currency === 'INR' ? 'active' : ''}`} onClick={() => setCurrency('INR')}>INR</button>
+            <button className={`currency-btn ${currency === 'USD' ? 'active' : ''}`} onClick={() => setCurrency('USD')}>USD</button>
+          </div>
           <button className="bell-btn" onClick={() => { setShowNotificationModal(true); setHasUnread(false); }}>
             🔔 {hasUnread && <span className="bell-badge"></span>}
           </button>
-
           {user.uid === ADMIN_UID && (
             <button className="btn-secondary" onClick={() => setIsAdminView(true)}>Admin Panel</button>
           )}
-
+          <button className="btn-secondary" onClick={() => setShowReferralModal(true)}>🔗 Refer</button>
           <button className="btn-secondary" onClick={() => signOut(auth)}>Logout</button>
         </div>
       </nav>
@@ -300,7 +300,7 @@ export default function App() {
       {/* Hero Daily Cutoff Section */}
       <div className="hero-card">
         <div>
-          <div className="profit-title">Accumulated Daily Profit (12 PM Cutoff)</div>
+          <div className="profit-title">Your Accumulated Profit (12 PM Cutoff)</div>
           <div className="profit-value">{profitDisplay}</div>
         </div>
         <button 
@@ -308,45 +308,63 @@ export default function App() {
           disabled={accumulatedProfit < 5000}
           onClick={() => alert('Withdrawal request initiated!')}
         >
-          {accumulatedProfit >= 5000 ? 'Withdraw Profit' : 'Locked (Min ₹5,000)'}
+          {accumulatedProfit >= 5000 ? 'WITHDRAW NOW' : 'LOCKED (MIN ₹5k)'}
         </button>
       </div>
 
-      {/* Cards Grid */}
-      <div className="cards-grid">
+      <div className="separator"></div>
+
+      {/* Premium Cards Grid */}
+      <div className="cards-container">
         {cardsList.map(card => (
-          <PortfolioCard 
-            key={card.id} 
-            card={card} 
-            currency={currency} 
-            exchangeRate={exchangeRate} 
+          <PremiumCard
+            key={card.id}
+            card={card}
+            currency={currency}
+            exchangeRate={exchangeRate}
+            isLocked={card.locked}
+            onUnlock={handleUnlock}
+            userName={userData?.fullName}
           />
         ))}
       </div>
 
-      {/* Social Proof Alerts */}
+      {/* Footer with Legal Links & Telegram */}
+      <div className="footer">
+        <div className="footer-links">
+          <a href="/terms" onClick={(e) => e.preventDefault()}>Terms of Service</a> | 
+          <a href="/privacy" onClick={(e) => e.preventDefault()}>Privacy Policy</a> | 
+          <a href="/risk" onClick={(e) => e.preventDefault()}>Risk Acknowledgment</a>
+        </div>
+        <a href="https://t.me/your_channel" target="_blank" rel="noreferrer" className="telegram-btn">
+          ✈️ Join Our Telegram Channel
+        </a>
+        <div className="footer-disclaimer">© 2026 Golden Bridge Investments. All rights reserved.</div>
+      </div>
+
+      {/* Social Proof Ticker */}
       {socialPopup && (
-        <div className="social-ticker" style={{ position: 'fixed', bottom: '80px', left: '20px', background: '#1e293b', padding: '0.75rem 1.25rem', borderRadius: '30px', borderLeft: '4px solid #10b981', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)', color: '#fff', fontSize: '0.9rem', zIndex: 100 }}>
+        <div className="social-ticker">
           {socialPopup}
         </div>
       )}
 
-      {/* Notifications Modal */}
+      {/* Notification Modal */}
       {showNotificationModal && (
-        <div className="modal-overlay" onClick={() => setShowNotificationModal(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ background: '#1e293b', padding: '2rem', borderRadius: '12px', width: '90%', maxWidth: '500px', color: '#fff' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h3 style={{ margin: 0, color: '#38bdf8' }}>Platform Updates</h3>
-              <button onClick={() => setShowNotificationModal(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+        <div className="modal-overlay" onClick={() => setShowNotificationModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Platform Updates</h3>
+              <button className="close-btn" onClick={() => setShowNotificationModal(false)}>✕</button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '300px', overflowY: 'auto' }}>
+            <div className="modal-body">
               {notifications.length === 0 ? (
-                <p style={{ color: '#94a3b8' }}>No updates right now.</p>
+                <p className="empty-msg">No updates right now.</p>
               ) : (
                 notifications.map(n => (
-                  <div key={n.id} style={{ padding: '0.75rem', background: '#0f172a', borderRadius: '6px' }}>
-                    <h4 style={{ margin: '0 0 0.25rem 0', color: '#10b981' }}>{n.title}</h4>
-                    <p style={{ margin: 0, fontSize: '0.9rem', color: '#cbd5e1' }}>{n.message}</p>
+                  <div key={n.id} className="notification-item">
+                    <h4>{n.title}</h4>
+                    <p>{n.message}</p>
                   </div>
                 ))
               )}
@@ -355,17 +373,61 @@ export default function App() {
         </div>
       )}
 
-      {/* ✅ Legal Footer & Safety Disclaimer as requested in PDF */}
-      <footer style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#0f172a', borderTop: '1px solid #1e293b', padding: '10px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', zIndex: 99, fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
-        <div style={{ display: 'flex', gap: '15px' }}>
-          <span style={{ cursor: 'pointer' }}>Terms of Service</span>
-          <span style={{ cursor: 'pointer' }}>Privacy Policy</span>
-          <span style={{ cursor: 'pointer' }}>Risk Disclosure</span>
+      {/* Unlock Card Modal (Psychological Scarcity) */}
+      {showUnlockModal && (
+        <div className="modal-overlay" onClick={() => setShowUnlockModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>🎯 Welcome to the Next Level!</h2>
+            <p>
+              We appreciate your ambition to elevate your portfolio. 
+              Your request has been successfully received. 
+              <br/><br/>
+              A dedicated <strong className="highlight-role">Senior Portfolio Manager (Uttar Pradesh Regional Office)</strong> 
+              will contact you shortly to guide you through this exclusive opportunity.
+            </p>
+            <button className="btn-primary" onClick={() => setShowUnlockModal(false)}>UNDERSTOOD, I'M READY</button>
+          </div>
         </div>
-        <div>
-          ⚠️ <strong>Risk Warning:</strong> This is a premium mathematical asset simulation app. It is NOT a real trading platform.
+      )}
+
+      {/* Ethical Referral Modal - No "Simulation/Demo" words */}
+      {showReferralModal && (
+        <div className="modal-overlay" onClick={() => setShowReferralModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ color: '#f59e0b', margin: 0 }}>🔗 Exclusive Referral Vault</h3>
+              <button className="close-btn" onClick={() => setShowReferralModal(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ textAlign: 'center' }}>
+              <p style={{ color: '#cbd5e1', fontSize: '1rem', marginBottom: '20px' }}>
+                Share your unique link to expand your portfolio visibility and network.
+              </p>
+              <div style={{ 
+                background: '#0f172a', 
+                padding: '14px', 
+                borderRadius: '8px', 
+                border: '1px solid #334155',
+                color: '#38bdf8',
+                wordBreak: 'break-all',
+                fontSize: '0.95rem',
+                fontWeight: '500'
+              }}>
+                {`https://golden-bridge-app-h8uz.vercel.app/?ref=${user?.uid}`}
+              </div>
+              <button 
+                className="btn-primary" 
+                style={{ marginTop: '20px', width: '100%', padding: '12px' }}
+                onClick={() => {
+                  navigator.clipboard.writeText(`https://golden-bridge-app-h8uz.vercel.app/?ref=${user?.uid}`);
+                  alert("Referral link copied successfully!");
+                }}
+              >
+                📋 Copy Your Unique Link
+              </button>
+            </div>
+          </div>
         </div>
-      </footer>
+      )}
     </div>
   );
 }
