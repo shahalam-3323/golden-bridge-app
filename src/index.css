@@ -1,3 +1,114 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VYOM NETWORK — Luxury Matte Fintech Base
+   Razor-sharp matte obsidian · brushed emerald · champagne gold.
+   No neon glows, no heavy blurs, no cyberpunk drop-shadows.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --obsidian: #090c0e;
+  --obsidian-surface: #11161a;
+  --obsidian-nav: #0d1114;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-gold: rgba(212, 175, 55, 0.3);
+  --champagne: #e5c158;
+  --emerald: #34d399;
+}
+
+html,
+body {
+  background-color: var(--obsidian);
+  color: #e6ebef;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Global tabular numerals so ₹ tickers + percentages never jitter. */
+body {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ── Hairline utility (1px crisp borders, never glowy) ── */
+.hairline {
+  border: 1px solid var(--hairline);
+}
+.hairline-t {
+  border-top: 1px solid var(--hairline);
+}
+.hairline-gold {
+  border: 1px solid var(--hairline-gold);
+}
+
+/* ── Matte elevated surface ── */
+.matte-surface {
+  background-color: var(--obsidian-surface);
+  border: 1px solid var(--hairline);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Brushed-Metal Virtual Cards (pure CSS — zero external images)
+   Mapped to TIER_CONFIG:
+     Starter / Active      → Brushed Emerald   (#064E3B → #022C22)
+     Mid (Growth/Elite/Prime) → Brushed Titanium (#1E293B → #0F172A)
+     Signature             → Matte Obsidian     (#141414 → #070707)
+   ═══════════════════════════════════════════════════════════════════════ */
+.metal-card {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--hairline);
+  box-shadow: none;
+}
+
+/* Diagonal brushed-metal sheen (fine raised lines, no blur). */
+.metal-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    118deg,
+    rgba(255, 255, 255, 0.05) 0px,
+    rgba(255, 255, 255, 0.05) 1px,
+    rgba(0, 0, 0, 0.07) 1px,
+    rgba(0, 0, 0, 0.07) 3px
+  );
+  opacity: 0.55;
+}
+
+/* Crisp top-left light wash — a sheen, not a glow. */
+.metal-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 42%);
+}
+
+.metal-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Emerald — Starter / Active */
+.metal-emerald {
+  background: linear-gradient(135deg, #064e3b 0%, #022c22 100%);
+  border-color: var(--hairline-gold);
+}
+/* Titanium Slate — Mid tiers */
+.metal-slate {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-color: rgba(203, 213, 225, 0.22);
+}
+/* Matte Obsidian — Signature (24K gold foil trim) */
+.metal-obsidian {
+  background: linear-gradient(135deg, #141414 0%, #070707 100%);
+  border-color: var(--hairline-gold);
+}

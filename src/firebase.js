@@ -5,7 +5,7 @@ import { getFirestore } from "firebase/firestore";
 // यहाँ हमने आपकी असली की (Key) को सीधे कोड में लिख दिया है
 const firebaseConfig = {
   apiKey: "AIzaSyAeD6ya-LWahcnukCxna0xCqFZo4l6m8Kw", 
-  authDomain: "://firebaseapp.com",
+  authDomain: "golden-bridge-v2.firebaseapp.com",
   projectId: "golden-bridge-v2",
   storageBucket: "golden-bridge-v2.firebasestorage.app",
   messagingSenderId: "885406712492",

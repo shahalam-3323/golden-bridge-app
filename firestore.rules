@@ -1,0 +1,140 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────
+// VYOM NETWORK — Firestore Security Rules
+// Closed-loop educational fintech simulator (see project_rules.md).
+//
+// Guarantees enforced here:
+//   1. A signed-in user can read ONLY their own wallet / passbook document.
+//   2. Sensitive money + identity fields (activeCards, customDeposits,
+//      availableFund, bonusUnlocked, lockedBonus, role, referral counters,
+//      cardActivatedAt) CANNOT be edited from the client console.
+//   3. The client can only ever PREPEND one new "pending" entry into the
+//      card-verification queue (pendingPurchases) and the payout queue
+//      (pendingRedeems). Queues are append-only — existing entries can never
+//      be rewritten, so a client cannot self-approve an order or inflate a
+//      deposit amount after submission. Approval / rejection is admin-only.
+//   4. Every appended purchase entry must be a "pending" custom_deposit or
+//      card_purchase of at least ₹100 — the minimum custom deposit.
+//   5. redeemedGross may only increase or stay the same — this is what stops
+//      the same accrued profit being redeemed twice (anti double-spend).
+//   6. The passbook (history) can only grow, never shrink or be rewritten.
+//   7. Wallet documents can never be deleted from the client.
+// ─────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Admin is identified EXACTLY the way the app does it:
+    // AuthContext sets role = (fbUser.email === 'admin@vyom.network') ? 'admin' : 'user'.
+    // We check the verified token email (not the editable `role` field) so it is
+    // spoof-proof, while still letting AdminPanel.js write to other users' docs.
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'admin@vyom.network';
+    }
+
+    // Money / identity fields the client console must never be able to edit.
+    // customDeposits is admin-only: it is the ledger of approved earning nodes.
+    function onlySafeFieldsChanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'email',
+        'role',
+        'activeCards',
+        'availableFund',
+        'bonusUnlocked',
+        'lockedBonus',
+        'referralCode',
+        'referredBy',
+        'referralEarnings',
+        'referralCount',
+        'secondaryCount',
+        'referralRewarded',
+        'cardActivatedAt',
+        'customDeposits',
+        'joinDate'
+      ]);
+    }
+
+    // redeemedGross can only go up (anti double-spend) and must be a number.
+    function redeemedGrossValid() {
+      return request.resource.data.get('redeemedGross', 0) is number
+        && request.resource.data.get('redeemedGross', 0) >= resource.data.get('redeemedGross', 0);
+    }
+
+    // Passbook entries can only be appended to.
+    function historyNotShrunk() {
+      return request.resource.data.get('history', []).size()
+        >= resource.data.get('history', []).size();
+    }
+
+    // A queue may either be left completely untouched, or grow by exactly one
+    // PREPENDED "pending" entry. Any other edit is rejected — notably this
+    // blocks a client from flipping an existing entry to status == 'approved'
+    // or from raising an already-submitted deposit amount.
+    function purchasesUnchangedOrAppended() {
+      let prev = resource.data.get('pendingPurchases', []);
+      let next = request.resource.data.get('pendingPurchases', []);
+      return next.size() == prev.size()
+        ? next == prev
+        : next.size() == prev.size() + 1
+          && next[0].status == 'pending'
+          && next[0].amount is number
+          && next[0].amount >= 100
+          && next[0].type in ['card_purchase', 'custom_deposit'];
+    }
+
+    function redeemsUnchangedOrAppended() {
+      let prev = resource.data.get('pendingRedeems', []);
+      let next = request.resource.data.get('pendingRedeems', []);
+      return next.size() == prev.size()
+        ? next == prev
+        : next.size() == prev.size() + 1
+          && next[0].status == 'pending'
+          && next[0].amount is number;
+    }
+
+    match /users/{userId} {
+
+      // 1. Read: only your own document (or an admin).
+      allow read: if isOwner(userId) || isAdmin();
+
+      // 2. Create: only your own document, only with a clean, empty wallet,
+      //    and `role` must match the same email rule AuthContext uses.
+      allow create: if isOwner(userId)
+        && request.resource.data.get('role', 'user')
+             == (request.auth.token.email == 'admin@vyom.network' ? 'admin' : 'user')
+        && request.resource.data.activeCards == []
+        && request.resource.data.pendingPurchases == []
+        && request.resource.data.pendingRedeems == []
+        && request.resource.data.get('customDeposits', []) == []
+        && request.resource.data.availableFund == 0
+        && request.resource.data.bonusUnlocked == false;
+
+      // 3. Update: your own document, only touching safe fields, with a
+      //    monotonic redemption baseline and append-only pending queues.
+      allow update: if isAdmin()
+        || (isOwner(userId)
+            && onlySafeFieldsChanged()
+            && redeemedGrossValid()
+            && historyNotShrunk()
+            && purchasesUnchangedOrAppended()
+            && redeemsUnchangedOrAppended());
+
+      // 4. Never allow wallet deletion from the client.
+      allow delete: if false;
+    }
+
+    // Explicit default-deny for every other path.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

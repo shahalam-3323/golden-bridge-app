@@ -1,46 +1,62 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth, TIER_CONFIG } from './context/AuthContext';
 import WelcomePage from './components/WelcomePage';
-import HomeScreen from './components/HomeScreen';
+import HomeTab from './components/tabs/HomeTab';
+import CardsTab from './components/tabs/CardsTab';
+import WalletTab from './components/tabs/WalletTab';
 import './App.css';
 
+const TABS = [
+  { id: 'home', label: 'Home', icon: '⌂' },
+  { id: 'cards', label: 'Cards', icon: '💳' },
+  { id: 'wallet', label: 'Wallet', icon: '💼' },
+];
+
 function DashboardContent() {
-  const { user, userData, authLoading, isSyncing, logout } = useAuth();
-  const [showProfileDossier, setShowProfileDossier] = useState(false);
+  const { user, userData, authLoading, isSyncing, logout, updateProfile } = useAuth();
+  const [activeTab, setActiveTab] = useState('home');
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [refCode, setRefCode] = useState(null);
 
-  // Dual-Compatible Referral Capture (Web ?ref= AND Telegram ?startapp=)
+  // Profile Form States
+  const [upiInput, setUpiInput] = useState('');
+  const [phoneInput, setPhoneInput] = useState('');
+  const [agreedConsent, setAgreedConsent] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState('');
+
+  // Referral capture from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get('ref') || params.get('tgWebAppStartParam') || params.get('startapp');
     if (ref) setRefCode(ref);
   }, []);
 
-  // 1. Initial Auth Loading State
+  // 1. Initial Loading
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#060B11] flex flex-col items-center justify-center text-slate-400 text-sm gap-3 font-mono">
-        <div className="w-7 h-7 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-        <p className="text-[10px] tracking-widest uppercase text-cyan-300">Connecting to Protocol...</p>
+      <div className="min-h-screen bg-[#090C0E] flex flex-col items-center justify-center text-slate-500 text-sm gap-3 font-mono">
+        <div className="w-7 h-7 border-2 border-[#E5C158] border-t-transparent rounded-full animate-spin" />
+        <p className="text-[10px] tracking-widest uppercase text-[#E5C158]">Connecting to VYOM...</p>
       </div>
     );
   }
 
-  // 2. 1.5-Second Revolut-Style Institutional Protocol Syncing Screen
+  // 2. 1.5s Institutional Protocol Sync Screen
   if (user && isSyncing) {
     return (
-      <div className="min-h-screen bg-[#060B11] flex flex-col items-center justify-center p-6 text-center font-mono">
-        <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center text-cyan-400 text-lg mb-4 shadow-[0_0_25px_rgba(0,229,255,0.25)] animate-pulse">
+      <div className="min-h-screen bg-[#090C0E] flex flex-col items-center justify-center p-6 text-center font-mono">
+        <div className="w-12 h-12 rounded-2xl bg-[#11161A] border border-[#D4AF37]/30 flex items-center justify-center text-[#E5C158] text-lg mb-4">
           ⚡
         </div>
         <h3 className="text-sm font-black text-white tracking-widest uppercase">
-          Synchronizing Institutional Terminal
+          Synchronizing Your Terminal
         </h3>
-        <p className="text-[9px] text-slate-400 mt-2 max-w-xs leading-relaxed">
-          CALCULATING DETERMINISTIC TIMESTAMPS • RECONCILING 50/50 PROFIT LEDGER
+        <p className="text-[9px] text-slate-500 mt-2 max-w-xs leading-relaxed">
+          LOADING YOUR CARDS • LIVE PROFIT • PAYOUT DETAILS
         </p>
-        <div className="w-48 h-1.5 bg-[#121A24] rounded-full overflow-hidden mt-5 border border-cyan-500/20">
-          <div className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full animate-pulse w-3/4" />
+        <div className="w-48 h-1 bg-[#11161A] rounded-full overflow-hidden mt-5 border border-white/[0.08]">
+          <div className="h-full bg-[#E5C158] rounded-full w-3/4" />
         </div>
       </div>
     );
@@ -48,10 +64,10 @@ function DashboardContent() {
 
   // 3. Unauthenticated -> Welcome Page
   if (!user) {
-    return <WelcomePage onLoginClick={() => {}} refCode={refCode} />;
+    return <WelcomePage refCode={refCode} />;
   }
 
-  // 4. Authenticated -> Home Page with Full Profile Dossier
+  // 4. Authenticated -> Tabbed Dashboard
   const userName =
     userData?.fullName && userData.fullName !== 'Syndicate Operator'
       ? userData.fullName
@@ -69,164 +85,283 @@ function DashboardContent() {
         month: 'short',
         year: 'numeric',
       })
-    : 'Active Protocol';
+    : 'Recent Member';
+
+  const isProfileComplete = Boolean(userData?.profileCompleted);
+
+  // Clean Masked Strings for Indian User Privacy
+  const maskedUpi = userData?.upiId
+    ? userData.upiId.replace(/^(.)(.*)(@.*)$/, (_, first, middle, last) => first + '****' + last)
+    : 'Not Added';
+
+  const maskedPhone = userData?.phone
+    ? userData.phone.replace(/^(\d{2})(\d+)(\d{2})$/, (_, first, middle, last) => `+91 ${first}*****${last}`)
+    : 'Not Added';
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setProfileError('');
+
+    const upiRegex = /^[a-zA-Z0-9._-]{3,}@[a-zA-Z]{3,}$/;
+    if (!upiRegex.test(upiInput.trim())) {
+      setProfileError('Please enter a valid UPI ID (e.g. yourname@okhdfcbank or 9876543210@paytm)');
+      return;
+    }
+
+    if (phoneInput.trim().replace(/\D/g, '').length !== 10) {
+      setProfileError('Please enter a valid 10-digit mobile number linked to your bank.');
+      return;
+    }
+
+    if (!agreedConsent) {
+      setProfileError('Please confirm that this UPI ID belongs to you.');
+      return;
+    }
+
+    setSavingProfile(true);
+    const res = await updateProfile({
+      upiId: upiInput.trim(),
+      phone: phoneInput.trim().replace(/\D/g, ''),
+      profileCompleted: true,
+    });
+    setSavingProfile(false);
+
+    if (res.error) {
+      setProfileError(res.error);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-[#060B11] text-[#E2E8F0] pb-16 font-sans">
-      <div className="max-w-md mx-auto">
-        {/* TOP HEADER: Logo + Bell + Profile Avatar */}
-        <header className="sticky top-0 z-40 bg-[#060B11]/90 backdrop-blur-xl border-b border-cyan-500/15 px-5 py-3.5 flex justify-between items-center">
+    <div className="min-h-screen bg-[#090C0E] text-[#E2E8F0] font-sans">
+      <div className="max-w-md mx-auto pb-24">
+        {/* TOP HEADER: Logo + Welcome + Profile / UPI Settings */}
+        <header className="sticky top-0 z-40 bg-[#090C0E]/95 border-b border-white/[0.08] px-5 py-3.5 flex justify-between items-center">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#00E5FF] to-blue-600 flex items-center justify-center font-black text-black text-sm shadow-[0_0_15px_rgba(0,229,255,0.4)]">
+            <div className="w-8 h-8 rounded-xl bg-[#11161A] border border-[#D4AF37]/40 flex items-center justify-center font-black text-[#E5C158] text-sm">
               V
             </div>
             <div>
-              <h1 className="text-sm font-black tracking-wider text-white">VYOM NETWORK</h1>
-              <p className="text-[8px] font-mono tracking-[0.25em] text-cyan-400 uppercase -mt-0.5">
-                Capital Architecture
+              <h1 className="text-sm font-black tracking-wider text-white leading-tight">
+                Welcome, {userName}
+              </h1>
+              <p className="text-[8px] font-mono tracking-[0.25em] text-[#E5C158] uppercase">
+                VYOM NETWORK
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button className="w-9 h-9 rounded-xl bg-[#0B131E] border border-cyan-500/25 flex items-center justify-center text-sm text-slate-300 hover:text-white shadow-[0_0_10px_rgba(0,229,255,0.1)] active:scale-95 transition-all">
-              🔔
-            </button>
-
-            {/* Profile Avatar Button */}
-            <button
-              onClick={() => setShowProfileDossier(true)}
-              className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-black text-sm font-black shadow-[0_0_15px_rgba(0,229,255,0.35)] active:scale-95 transition-all"
-            >
-              {userInitial}
-            </button>
-          </div>
+          {/* Profile / UPI Settings Button */}
+          <button
+            onClick={() => setShowProfileModal(true)}
+            title="Profile & UPI Settings"
+            className="w-9 h-9 rounded-xl bg-[#11161A] border border-[#D4AF37]/40 flex items-center justify-center text-[#E5C158] text-sm font-black active:scale-95 transition-all"
+          >
+            {userInitial}
+          </button>
         </header>
 
-        {/* Home Screen Content */}
-        <main className="pt-2">
-          <HomeScreen />
+        {/* ACTIVE TAB */}
+        <main>
+          {activeTab === 'home' && <HomeTab onNavigate={setActiveTab} />}
+          {activeTab === 'cards' && <CardsTab />}
+          {activeTab === 'wallet' && <WalletTab onOpenProfile={() => setShowProfileModal(true)} />}
         </main>
+      </div>
 
-        {/* ─── FULL OPERATOR PROTOCOL DOSSIER MODAL ─── */}
-        {showProfileDossier && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-            <div className="w-full max-w-md bg-[#0B131E] border border-cyan-400/30 rounded-3xl p-5 text-[#E2E8F0] shadow-[0_0_50px_rgba(0,229,255,0.15)] max-h-[90vh] overflow-y-auto font-sans">
-              
-              {/* Dossier Top Bar */}
-              <div className="flex justify-between items-center pb-3 border-b border-cyan-500/15">
-                <div>
-                  <span className="text-[8px] font-mono tracking-widest uppercase text-cyan-400 bg-cyan-500/10 border border-cyan-400/20 px-2 py-0.5 rounded-md">
-                    Confidential
+      {/* FIXED BOTTOM NAVIGATION — matte obsidian, sharp hairline, champagne active */}
+      <nav className="fixed bottom-0 inset-x-0 z-40 bg-[#0D1114] border-t border-white/[0.08]">
+        <div className="max-w-md mx-auto grid grid-cols-3">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`py-3 flex flex-col items-center gap-1 transition-colors ${
+                  isActive ? 'text-[#E5C158]' : 'text-slate-500'
+                }`}
+              >
+                <span className="text-lg leading-none">{tab.icon}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">{tab.label}</span>
+                <span
+                  className={`h-0.5 w-8 rounded-full transition-all ${
+                    isActive ? 'bg-[#E5C158]' : 'bg-transparent'
+                  }`}
+                />
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* ─── PROFILE / UPI SETTINGS MODAL ─── */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#050708]/90 animate-fadeIn">
+          <div className="w-full max-w-sm bg-[#11161A] border border-white/[0.08] rounded-3xl p-5 text-[#E2E8F0] max-h-[90vh] overflow-y-auto font-sans">
+            {/* Header */}
+            <div className="flex justify-between items-center pb-3 border-b border-white/[0.08]">
+              <div>
+                <h3 className="text-base font-black text-white">My Account &amp; Settings</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5">Profile &amp; Payout Details</p>
+              </div>
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="w-8 h-8 rounded-full bg-[#0D1114] border border-white/[0.08] flex items-center justify-center text-slate-400 hover:text-white active:scale-95"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 1. Account Details */}
+            <div className="mt-4 bg-[#0D1114] border border-white/[0.08] rounded-2xl p-4 space-y-2.5 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Full Name</span>
+                <span className="text-white font-bold">{userName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Referral Code</span>
+                <span className="text-[#E5C158] font-mono font-bold bg-[#E5C158]/10 px-2 py-0.5 rounded-lg border border-[#D4AF37]/30">
+                  {userData?.referralCode || 'VYOM-NODE'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Joined On</span>
+                <span className="text-slate-300">{formattedJoinDate}</span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t border-white/[0.08]">
+                <span className="text-slate-400">Active Cards</span>
+                <span className="text-emerald-400 font-bold text-right">
+                  {activeCardNames || 'None (₹1,000 Locked)'}
+                </span>
+              </div>
+            </div>
+
+            {/* 2. UPI Payout Details */}
+            <div className="mt-3 bg-[#0D1114] border border-white/[0.08] rounded-2xl p-4">
+              <div className="flex justify-between items-center mb-2.5">
+                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  💳 UPI Payout Details
+                </h4>
+                {isProfileComplete ? (
+                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                    ✓ Active
                   </span>
-                  <h3 className="text-base font-black text-white mt-1 uppercase tracking-wide">
-                    Operator Protocol Dossier
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setShowProfileDossier(false)}
-                  className="w-8 h-8 rounded-full bg-[#121D2B] border border-cyan-500/20 flex items-center justify-center text-slate-400 hover:text-white active:scale-95"
-                >
-                  ✕
-                </button>
+                ) : (
+                  <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full">
+                    Not Added
+                  </span>
+                )}
               </div>
 
-              {/* MACRO SECTION 1: OPERATOR IDENTITY & NODE SPECS */}
-              <div className="mt-4 bg-[#070D14]/90 border border-cyan-500/20 rounded-2xl p-4">
-                <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-cyan-400 font-bold mb-3 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                  Operator Identity & Node Specs
-                </p>
-                <div className="grid grid-cols-2 gap-2.5 text-xs font-mono">
-                  <div className="bg-[#0C1522] p-2.5 rounded-xl border border-white/[0.04]">
-                    <p className="text-[8px] text-slate-400 uppercase">Sovereign Handle</p>
-                    <p className="text-white font-bold truncate mt-0.5">{userName}</p>
+              {isProfileComplete ? (
+                <div className="space-y-2 text-xs">
+                  <div className="bg-[#090C0E] p-2.5 rounded-xl border border-white/[0.08]">
+                    <p className="text-[9px] text-slate-400">Your Linked UPI ID</p>
+                    <p className="text-[#E5C158] font-mono font-bold mt-0.5">{maskedUpi}</p>
                   </div>
-                  <div className="bg-[#0C1522] p-2.5 rounded-xl border border-white/[0.04]">
-                    <p className="text-[8px] text-slate-400 uppercase">Syndicate Node ID</p>
-                    <p className="text-cyan-300 font-bold truncate mt-0.5">{userData?.referralCode || 'VYOM-NODE'}</p>
+                  <div className="bg-[#090C0E] p-2.5 rounded-xl border border-white/[0.08]">
+                    <p className="text-[9px] text-slate-400">Linked Mobile Number</p>
+                    <p className="text-white font-mono mt-0.5">{maskedPhone}</p>
                   </div>
-                  <div className="bg-[#0C1522] p-2.5 rounded-xl border border-white/[0.04]">
-                    <p className="text-[8px] text-slate-400 uppercase">Sponsor Node</p>
-                    <p className="text-slate-200 font-bold truncate mt-0.5">{userData?.referredBy || 'Direct Root'}</p>
-                  </div>
-                  <div className="bg-[#0C1522] p-2.5 rounded-xl border border-white/[0.04]">
-                    <p className="text-[8px] text-slate-400 uppercase">Commissioned Date</p>
-                    <p className="text-slate-200 font-bold mt-0.5">{formattedJoinDate}</p>
-                  </div>
-                  <div className="bg-[#0C1522] p-2.5 rounded-xl border border-white/[0.04] col-span-2">
-                    <p className="text-[8px] text-slate-400 uppercase">Active Capital Allocation</p>
-                    <p className="text-emerald-400 font-bold mt-0.5">
-                      {activeCardNames || 'Awaiting Node Activation (1,000 VC Locked)'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* MACRO SECTION 2: GOVERNANCE & 50/50 PROFIT SHARING */}
-              <div className="mt-3 bg-[#070D14]/90 border border-cyan-500/20 rounded-2xl p-4">
-                <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-cyan-400 font-bold mb-3 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                  Governance & 50/50 Profit Parameters
-                </p>
-                <div className="space-y-2 text-xs font-mono">
-                  <div className="flex justify-between items-center bg-[#0C1522] p-2.5 rounded-xl border border-cyan-500/10">
-                    <div>
-                      <p className="text-slate-300 font-bold">User Net Profit Share</p>
-                      <p className="text-[8px] text-slate-400 mt-0.5">Guaranteed Realized Allocation</p>
-                    </div>
-                    <span className="text-cyan-400 font-black text-sm">50.0%</span>
-                  </div>
-                  <div className="flex justify-between items-center bg-[#0C1522] p-2.5 rounded-xl border border-cyan-500/10">
-                    <div>
-                      <p className="text-slate-300 font-bold">Protocol Operations Reserve</p>
-                      <p className="text-[8px] text-slate-400 mt-0.5">Safety Pool & Liquidity Maintenance</p>
-                    </div>
-                    <span className="text-slate-400 font-black text-sm">50.0%</span>
-                  </div>
-                  <div className="flex justify-between items-center bg-[#0C1522] p-2.5 rounded-xl border border-cyan-500/10">
-                    <div>
-                      <p className="text-slate-300 font-bold">Redemption Friction / Exit Fee</p>
-                      <p className="text-[8px] text-slate-400 mt-0.5">Zero Deduction Policy</p>
-                    </div>
-                    <span className="text-emerald-400 font-black text-sm">0.0% (FREE)</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* MACRO SECTION 3: RISK DISCLOSURE & PROTOCOL COMPLIANCE */}
-              <div className="mt-3 bg-[#070D14]/90 border border-cyan-500/20 rounded-2xl p-4">
-                <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-cyan-400 font-bold mb-2 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                  Risk Disclosure & Protocol Compliance
-                </p>
-                <div className="text-[10px] text-slate-400 space-y-1.5 leading-relaxed font-sans">
-                  <p>
-                    • <strong className="text-slate-200">Drawdown Liability:</strong> In adverse market conditions, the capital base reflects actual market drawdown. Zero fixed-return guarantees.
-                  </p>
-                  <p>
-                    • <strong className="text-slate-200">Regulatory Framework:</strong> VYOM Network operates as a closed-loop institutional educational terminal. Zero unregulated public securities.
-                  </p>
-                  <p>
-                    • <strong className="text-slate-200">Capital Custody:</strong> Deterministic compounding algorithm based on verified mathematical trajectory models.
+                  <p className="text-[10px] text-slate-400 leading-relaxed pt-1">
+                    🔒 Your 50% profit will be sent to this UPI ID within 2 to 48 hours when you withdraw.
                   </p>
                 </div>
-              </div>
+              ) : (
+                <form onSubmit={handleSaveProfile} className="space-y-3">
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Add your UPI ID so we can send your 50% profit share directly to your bank account.
+                  </p>
 
-              {/* MACRO SECTION 4: SESSION SECURITY & TERMINATION */}
-              <div className="mt-4 pt-3 border-t border-cyan-500/15">
-                <button
-                  onClick={logout}
-                  className="w-full bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-mono font-bold py-3.5 rounded-2xl text-xs uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(239,68,68,0.1)] flex items-center justify-center gap-2 active:scale-98"
-                >
-                  <span>⚠️ Terminate Active Session (Logout)</span>
-                </button>
-              </div>
+                  {profileError && (
+                    <div className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 p-2 rounded-xl text-center">
+                      {profileError}
+                    </div>
+                  )}
 
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-1">
+                      Your UPI ID (GPay / PhonePe / Paytm)
+                    </label>
+                    <input
+                      type="text"
+                      value={upiInput}
+                      onChange={(e) => setUpiInput(e.target.value)}
+                      placeholder="e.g. yourname@okhdfcbank"
+                      required
+                      className="w-full bg-[#090C0E] border border-white/[0.08] rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:border-[#D4AF37]/60 outline-none font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-1">
+                      Bank-Linked Mobile Number
+                    </label>
+                    <input
+                      type="tel"
+                      value={phoneInput}
+                      onChange={(e) => setPhoneInput(e.target.value)}
+                      placeholder="10-digit mobile number"
+                      required
+                      className="w-full bg-[#090C0E] border border-white/[0.08] rounded-xl p-2.5 text-xs text-white placeholder-slate-600 focus:border-[#D4AF37]/60 outline-none font-mono"
+                    />
+                  </div>
+
+                  <label className="flex items-start gap-2 pt-1 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={agreedConsent}
+                      onChange={(e) => setAgreedConsent(e.target.checked)}
+                      className="mt-0.5 accent-[#E5C158] cursor-pointer"
+                    />
+                    <span className="text-[10px] text-slate-400 leading-relaxed">
+                      I confirm this UPI ID belongs to me and is active.
+                    </span>
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={savingProfile}
+                    className="w-full bg-[#E5C158] text-black font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider active:scale-95 disabled:opacity-50"
+                  >
+                    {savingProfile ? 'Saving...' : 'Save UPI Details'}
+                  </button>
+                </form>
+              )}
+            </div>
+
+            {/* 3. Profit Sharing Rule */}
+            <div className="mt-3 bg-[#0D1114] border border-white/[0.08] rounded-2xl p-4 text-xs space-y-2">
+              <h4 className="text-xs font-bold text-white mb-2">⚖️ How Profit Sharing Works</h4>
+              <div className="flex justify-between items-center text-slate-300">
+                <span>Your Profit Share</span>
+                <span className="text-emerald-400 font-bold">50% (Direct to UPI)</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-300">
+                <span>50/50 Profit Split</span>
+                <span className="text-[#E5C158] font-bold">Zero Fixed Fees</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-300 pt-1 border-t border-white/[0.08]">
+                <span>Withdrawal / Exit Fee</span>
+                <span className="text-[#E5C158] font-bold">₹0 (Free)</span>
+              </div>
+              <p className="text-[9px] text-slate-500 leading-relaxed pt-1">
+                Your principal stays 100% untouched — only generated profit is shared 50/50.
+              </p>
+            </div>
+
+            {/* 4. Log Out */}
+            <div className="mt-4 pt-2">
+              <button
+                onClick={logout}
+                className="w-full bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 font-bold py-3 rounded-2xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-95"
+              >
+                🚪 Log Out
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

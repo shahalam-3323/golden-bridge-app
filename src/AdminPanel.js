@@ -1,262 +1,562 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
+import { rateForAmount } from './context/AuthContext';
 import { signOut } from 'firebase/auth';
-import { collection, getDocs, updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
 
-const AdminPanel = () => {
+const fmt = (n) =>
+  Number(n || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+export default function AdminPanel() {
   const [users, setUsers] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [newProductName, setNewProductName] = useState('');
-  const [newProductPrice, setNewProductPrice] = useState('');
-  const [storeStatus, setStoreStatus] = useState('coming_soon'); // 'coming_soon' | 'live'
+  const [activeTab, setActiveTab] = useState('orders'); // Default to Card Purchases!
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [bankUtr, setBankUtr] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
-    fetchData();
+    fetchUsers();
   }, []);
 
-  const fetchData = async () => {
-    const usersSnap = await getDocs(collection(db, 'users'));
-    setUsers(usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    const productsSnap = await getDocs(collection(db, 'products'));
-    setProducts(productsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  const fetchUsers = async () => {
+    const uSnap = await getDocs(collection(db, 'users'));
+    setUsers(uSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
   };
 
-  // ─── POOL CAPITAL CALCULATION ───
-  const totalPoolVC = users.reduce((acc, user) => acc + (user.baseInvestment || 0), 0);
-  const targetPool = 500000; // 5 Lakhs
-  const progressPercent = Math.min((totalPoolVC / targetPool) * 100, 100);
+  // 1. ALL PENDING CARD PURCHASES
+  const allCardOrders = users
+    .filter((u) => u.role !== 'admin')
+    .flatMap((u) =>
+      (u.pendingPurchases || []).map((p, idx) => ({
+        ...p,
+        userId: u.id,
+        userEmail: u.email,
+        userFullName: u.fullName,
+        userPhone: u.phone,
+        userBonusUnlocked: u.bonusUnlocked,
+        activeCards: u.activeCards || [],
+        customDeposits: u.customDeposits || [],
+        cardActivatedAt: u.cardActivatedAt || {},
+        referredBy: u.referredBy,
+        idxInUserArray: idx,
+      }))
+    )
+    .sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
 
-  // ─── DEPOSIT APPROVAL (USDT → VC) ───
-  const approveDeposit = async (userId, depositIndex) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) return;
-    const deposit = user.pendingDeposits[depositIndex];
-    if (!deposit) return;
+  const pendingOrders = allCardOrders.filter((o) => o.status === 'pending');
+
+  // 2. ALL PENDING REDEMPTIONS
+  const allRedeemRequests = users
+    .filter((u) => u.role !== 'admin')
+    .flatMap((u) =>
+      (u.pendingRedeems || []).map((r, idx) => ({
+        ...r,
+        userId: u.id,
+        userEmail: u.email,
+        userFullName: u.fullName,
+        userPhone: u.phone,
+        userUpiId: u.upiId,
+        idxInUserArray: idx,
+      }))
+    )
+    .sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+
+  const pendingRedeems = allRedeemRequests.filter((r) => r.status === 'pending');
+
+  // ─── ACTION A: APPROVE CARD PURCHASE & ACTIVATE NODE ───
+  const handleApproveOrder = async (order) => {
+    setActionLoading(true);
+    setActionError('');
 
     try {
-      const userRef = doc(db, 'users', userId);
-      const usdtAmount = Number(deposit.amount || 0);
-      const convertedVcAmount = usdtAmount * 100;
-      
-      const newBaseInvestment = (user.baseInvestment || 0) + convertedVcAmount;
-      const newHistory = [
-        { type: `Deposit Approved (Bought ${convertedVcAmount} VC nodes via ${usdtAmount} USDT Gateway)`, amount: convertedVcAmount, date: new Date().toISOString() },
-        ...(user.history || [])
-      ];
-      
-      const updatedPendingDeposits = user.pendingDeposits.filter((_, idx) => idx !== depositIndex);
+      const user = users.find((u) => u.id === order.userId);
+      if (!user) return;
 
-      await updateDoc(userRef, {
-        baseInvestment: newBaseInvestment,
-        history: newHistory,
-        pendingDeposits: updatedPendingDeposits
+      const now = new Date().toISOString();
+      const isDeposit = order.type === 'custom_deposit';
+
+      const updatedPurchases = (user.pendingPurchases || []).map((p, idx) =>
+        idx === order.idxInUserArray ? { ...p, status: 'approved', reviewedAt: now } : p
+      );
+
+      const shouldUnlockBonus = !user.bonusUnlocked;
+      const existingDeposits = user.customDeposits || [];
+
+      // ── REFERRAL QUALIFICATION GUARD ──
+      // Upline payouts (L1 ₹200 / L2 ₹100) only fire when the referred operator
+      // genuinely commits capital: ANY fixed-tier card purchase, or a custom
+      // deposit/order of at least ₹2,000. A ₹100 micro-deposit still unlocks the
+      // user's own ₹1,000 Welcome Bonus, but never pays the upline.
+      // `referralRewarded` is a one-shot latch so the payout happens exactly once
+      // — on whichever qualifying order lands first.
+      const orderAmount = Number(order.amount) || 0;
+      const qualifiesForReferral = !isDeposit || orderAmount >= 2000;
+      const shouldRewardReferral =
+        qualifiesForReferral && !user.referralRewarded && Boolean(user.referredBy);
+      const referralRewarded = shouldRewardReferral || Boolean(user.referralRewarded);
+
+      // Fixed tier card → append the tier id (idempotent).
+      // Custom deposit → append its own ledger node carrying capital + the rate
+      // that was locked in at submission. Both node types earn side by side.
+      const activeList = user.activeCards || [];
+      const updatedCards = isDeposit
+        ? activeList
+        : activeList.includes(order.cardId)
+          ? activeList
+          : [...activeList, order.cardId];
+
+      const updatedDeposits = isDeposit
+        ? existingDeposits.some((d) => d.id === order.orderId)
+          ? existingDeposits
+          : [
+              ...existingDeposits,
+              {
+                id: order.orderId,
+                type: 'custom_deposit',
+                capital: Number(order.amount),
+                monthlyRate: Number(order.lockedRate) || rateForAmount(order.amount),
+                activatedAt: now,
+              },
+            ]
+        : existingDeposits;
+
+      // The ₹1,000 Welcome Bonus merges into the user's FIRST activated node,
+      // which the ledger resolves by activation time — so a deposit-only user
+      // gets ₹100 + ₹1,000 = ₹1,100 base without needing a card timestamp.
+      const updatedTimestamps = isDeposit
+        ? { ...(user.cardActivatedAt || {}) }
+        : { ...(user.cardActivatedAt || {}), [order.cardId]: now };
+
+      const logEntry = isDeposit
+        ? {
+            type: 'Custom Deposit Activated by Bank Audit',
+            detail: `Verified micro-deposit of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Base Amount node activated at ${(
+              ((Number(order.lockedRate) || rateForAmount(order.amount)) * 100)
+            ).toFixed(1)}%/month. ${
+              shouldUnlockBonus ? '₹1,000 Welcome Base Amount unlocked and merged.' : ''
+            }`,
+            amount: order.amount,
+            refId: order.orderId,
+            date: now,
+          }
+        : {
+            type: `Card Activated by Bank Audit: ${order.cardName}`,
+            detail: `Verified Payment of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Node activated. ${
+              shouldUnlockBonus ? '₹1,000 Welcome Capital unlocked into compounding.' : ''
+            }`,
+            amount: order.amount,
+            refId: order.orderId,
+            date: now,
+          };
+
+      // Atomic Update User Document
+      await updateDoc(doc(db, 'users', order.userId), {
+        activeCards: updatedCards,
+        customDeposits: updatedDeposits,
+        cardActivatedAt: updatedTimestamps,
+        bonusUnlocked: true,
+        referralRewarded,
+        pendingPurchases: updatedPurchases,
+        history: [logEntry, ...(user.history || [])],
       });
 
-      alert(`✅ Converted ${usdtAmount} USDT to ${convertedVcAmount} VC Nodes for ${user.email}`);
-      fetchData();
+      // Trigger the 2-Level Multiplier once the referred operator first qualifies.
+      if (shouldRewardReferral) {
+        // Trigger Level 1 (+200) and Level 2 (+100) rewards
+        try {
+          const usersRef = collection(db, 'users');
+          const q1 = query(usersRef, where('referralCode', '==', user.referredBy.trim()));
+          const snap1 = await getDocs(q1);
+          if (!snap1.empty) {
+            const pDoc = snap1.docs[0];
+            const pData = pDoc.data();
+            await updateDoc(doc(db, 'users', pDoc.id), {
+              availableFund: Number(pData.availableFund || 0) + 200,
+              referralEarnings: Number(pData.referralEarnings || 0) + 200,
+              referralCount: Number(pData.referralCount || 0) + 1,
+              history: [
+                {
+                  type: 'Tier-1 Direct Expansion Incentive',
+                  detail: `Earned from ${user.fullName || 'Operator'} card activation.`,
+                  amount: 200,
+                  date: now,
+                },
+                ...(pData.history || []),
+              ],
+            });
+
+            if (pData.referredBy) {
+              const q2 = query(usersRef, where('referralCode', '==', pData.referredBy.trim()));
+              const snap2 = await getDocs(q2);
+              if (!snap2.empty) {
+                const gpDoc = snap2.docs[0];
+                const gpData = gpDoc.data();
+                await updateDoc(doc(db, 'users', gpDoc.id), {
+                  availableFund: Number(gpData.availableFund || 0) + 100,
+                  referralEarnings: Number(gpData.referralEarnings || 0) + 100,
+                  secondaryCount: Number(gpData.secondaryCount || 0) + 1,
+                  history: [
+                    {
+                      type: 'Tier-2 Syndicate Override Yield',
+                      detail: `Secondary override from ${user.fullName || 'Operator'}.`,
+                      amount: 100,
+                      date: now,
+                    },
+                    ...(gpData.history || []),
+                  ],
+                });
+              }
+            }
+          }
+        } catch (multiErr) {
+          console.error('Multi-tier trigger error:', multiErr);
+        }
+      }
+
+      fetchUsers();
     } catch (err) {
-      alert('Operational Failure: ' + err.message);
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  const rejectDeposit = async (userId, depositIndex) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) return;
-
+  // ─── ACTION B: REJECT CARD ORDER ───
+  const handleRejectOrder = async (order) => {
+    setActionLoading(true);
     try {
-      const userRef = doc(db, 'users', userId);
-      const updatedPendingDeposits = user.pendingDeposits.filter((_, idx) => idx !== depositIndex);
-      await updateDoc(userRef, { pendingDeposits: updatedPendingDeposits });
-      alert('❌ Deposit ledger item rejected and deleted.');
-      fetchData();
-    } catch (err) {
-      alert('Operational Failure: ' + err.message);
-    }
-  };
+      const user = users.find((u) => u.id === order.userId);
+      if (!user) return;
 
-  // ─── WITHDRAWAL APPROVAL / REJECT ───
-  const approveWithdrawal = async (userId, withdrawIndex) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) return;
-    const req = user.pendingWithdrawals[withdrawIndex];
-    if (!req) return;
+      const now = new Date().toISOString();
+      const isDeposit = order.type === 'custom_deposit';
 
-    try {
-      const userRef = doc(db, 'users', userId);
-      const amount = Number(req.amount || 0);
-      const newLocked = parseFloat(((user.lockedBalance || 0) - amount).toFixed(2));
-      const newHistory = [
-        { type: 'Admin Released Settlement', amount, date: new Date().toISOString() },
-        ...(user.history || [])
-      ];
-      
-      const updatedPendingWithdrawals = user.pendingWithdrawals.filter((_, idx) => idx !== withdrawIndex);
+      const updatedPurchases = (user.pendingPurchases || []).map((p, idx) =>
+        idx === order.idxInUserArray ? { ...p, status: 'rejected', reviewedAt: now } : p
+      );
 
-      await updateDoc(userRef, {
-        lockedBalance: newLocked,
-        history: newHistory,
-        pendingWithdrawals: updatedPendingWithdrawals
+      const logEntry = {
+        type: isDeposit ? 'Custom Deposit Order Rejected' : 'Card Purchase Order Rejected',
+        detail: isDeposit
+          ? `Micro-deposit of ₹${fmt(order.amount)} with UTR: ${order.bankUtr} could not be verified in bank records.`
+          : `Payment for ${order.cardName} with UTR: ${order.bankUtr} could not be verified in bank records.`,
+        amount: 0,
+        refId: order.orderId,
+        date: now,
+      };
+
+      await updateDoc(doc(db, 'users', order.userId), {
+        pendingPurchases: updatedPurchases,
+        history: [logEntry, ...(user.history || [])],
       });
 
-      alert(`✅ Payout of ₹${amount} cleared for ${user.email}`);
-      fetchData();
+      fetchUsers();
     } catch (err) {
-      alert('Operational Failure: ' + err.message);
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  const rejectWithdrawal = async (userId, withdrawIndex) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) return;
-    const req = user.pendingWithdrawals[withdrawIndex];
-    if (!req) return;
+  // ─── ACTION C: APPROVE REDEMPTION WITH BANK UTR ───
+  const handleApproveRedeem = async (request) => {
+    if (!bankUtr.trim() || bankUtr.trim().length < 6) {
+      setActionError('Please enter a valid Bank UTR / Transaction Reference Number (min 6 chars).');
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError('');
 
     try {
-      const userRef = doc(db, 'users', userId);
-      const amount = Number(req.amount || 0);
-      
-      const newActive = parseFloat(((user.activeBalance || 0) + amount).toFixed(2));
-      const newLocked = parseFloat(((user.lockedBalance || 0) - amount).toFixed(2));
-      
-      const newHistory = [
-        { type: 'Admin Rejected Payout (Funds Safely Rolled-Back)', amount, date: new Date().toISOString() },
-        ...(user.history || [])
-      ];
-      
-      const updatedPendingWithdrawals = user.pendingWithdrawals.filter((_, idx) => idx !== withdrawIndex);
+      const user = users.find((u) => u.id === request.userId);
+      if (!user) return;
 
-      await updateDoc(userRef, {
-        activeBalance: newActive,
-        lockedBalance: newLocked,
-        pendingWithdrawals: updatedPendingWithdrawals
+      const now = new Date().toISOString();
+      const updatedRedeems = (user.pendingRedeems || []).map((r, idx) =>
+        idx === request.idxInUserArray
+          ? { ...r, status: 'approved', bankUtr: bankUtr.trim(), reviewedAt: now }
+          : r
+      );
+
+      const historyEntry = {
+        type: 'Settlement Completed via Bank Transfer',
+        detail: `Net Payout of ₹${fmt(request.amount || request.netPayout)} dispatched to ${
+          request.destinationUpi || request.userUpiId
+        }. Bank UTR: ${bankUtr.trim()}`,
+        amount: request.amount || request.netPayout,
+        refId: request.id,
+        bankUtr: bankUtr.trim(),
+        date: now,
+      };
+
+      await updateDoc(doc(db, 'users', request.userId), {
+        pendingRedeems: updatedRedeems,
+        history: [historyEntry, ...(user.history || [])],
       });
 
-      alert(`↩️ Withdrawal of ₹${amount} rejected. Capital structural rollback completed.`);
-      fetchData();
+      setSelectedRequest(null);
+      setBankUtr('');
+      fetchUsers();
     } catch (err) {
-      alert('Operational Failure: ' + err.message);
+      setActionError(err.message);
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  // ─── PRODUCT MANAGEMENT ───
-  const addProduct = async (e) => {
-    e.preventDefault();
-    const newProduct = { name: newProductName, priceCoins: Number(newProductPrice), category: 'General', image: '🛍️' };
-    await setDoc(doc(collection(db, 'products')), newProduct);
-    setNewProductName('');
-    setNewProductPrice('');
-    fetchData();
-    alert('✅ Store item registered.');
-  };
-
-  const deleteProduct = async (productId) => {
-    await deleteDoc(doc(db, 'products', productId));
-    fetchData();
-    alert('🗑️ Item wiped from node.');
-  };
-
-  // ─── RENDER ───
   return (
-    <div className="min-h-screen bg-[#0B0E11] text-white p-4 font-sans">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex justify-between items-center border-b border-white/10 pb-3 mb-6">
-          <h1 className="text-xl font-bold text-[#F0A818]">Golden Bridge Admin</h1>
-          <button onClick={() => signOut(auth)} className="bg-[#1E2329] px-4 py-2 rounded-lg text-xs">Logout</button>
-        </div>
-
-        {/* ─── STORE STATUS TOGGLE ─── */}
-        <div className="bg-[#1E2329] p-3 rounded-xl flex items-center justify-between mb-4">
-          <span className="text-xs text-gray-400">Store Status</span>
-          <button 
-            onClick={() => setStoreStatus(storeStatus === 'coming_soon' ? 'live' : 'coming_soon')}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold ${storeStatus === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}
+    <div className="min-h-screen bg-[#090C0E] text-[#E2E8F0] p-6 font-mono tabular-nums">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center pb-4 border-b border-white/[0.08]">
+          <div>
+            <h1 className="text-xl font-black text-[#E5C158] uppercase tracking-wider">
+              VYOM Protocol Audit Console
+            </h1>
+            <p className="text-[10px] text-slate-400 mt-0.5">Master Settlement & Capital Node Oversight</p>
+          </div>
+          <button
+            onClick={() => signOut(auth)}
+            className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-4 py-2 rounded-xl hover:bg-red-500/20"
           >
-            {storeStatus === 'live' ? '🟢 Live' : '🟡 Coming Soon'}
+            Logout
           </button>
         </div>
 
-        {/* ─── POOL CAPITAL PROGRESS ─── */}
-        <div className="bg-[#1E2329] border border-[#F0A818]/20 rounded-2xl p-5 mb-6 shadow-lg">
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider">Liquidity Pool (Total Invested)</p>
-              <p className="text-2xl font-bold text-[#F0A818] font-mono">₹ {totalPoolVC.toLocaleString()}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] text-gray-400">Target</p>
-              <p className="text-sm font-bold text-white">₹ {targetPool.toLocaleString()}</p>
-            </div>
-          </div>
-          <div className="w-full bg-[#0B0E11] h-2 rounded-full mt-3 overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-[#F0A818] to-[#38bdf8] transition-all duration-1000" style={{ width: `${progressPercent}%` }}></div>
-          </div>
-          <p className="text-[9px] text-gray-500 mt-2 font-mono">{progressPercent.toFixed(1)}% towards Inventory Phase</p>
+        {/* 3 Tabs: Orders | Redeems | Users */}
+        <div className="flex gap-2 bg-[#11161A] p-1.5 rounded-2xl border border-white/[0.08]">
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'orders' ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40' : 'text-slate-400'
+            }`}
+          >
+            Orders & Deposits ({pendingOrders.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('redeems')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'redeems' ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40' : 'text-slate-400'
+            }`}
+          >
+            Pending Redemptions ({pendingRedeems.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'users' ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40' : 'text-slate-400'
+            }`}
+          >
+            Registered Operators ({users.filter((u) => u.role !== 'admin').length})
+          </button>
         </div>
 
-        {/* ─── PENDING DEPOSITS ─── */}
-        <div className="bg-[#161A1E] border border-white/10 rounded-2xl p-5 shadow-xl space-y-3 mb-6">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Pending Deposits</h3>
-          {users.filter(u => u.pendingDeposits && u.pendingDeposits.length > 0).length === 0 ? 
-            <p className="text-xs text-gray-500 font-mono">No pending deposits.</p> :
-            users.filter(u => u.pendingDeposits && u.pendingDeposits.length > 0).map((user) => 
-              user.pendingDeposits.map((dep, idx) => (
-                <div key={`${user.id}-dep-${idx}`} className="bg-[#0B0E11] border border-white/5 rounded-xl p-3 flex justify-between items-center">
-                  <div>
-                    <p className="text-xs font-bold text-white">{user.email}</p>
-                    <p className="text-[11px] text-gray-400 font-mono">TxAmt: <span className="text-emerald-400">{dep.amount} USDT</span> | Hash: {dep.txid}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => approveDeposit(user.id, idx)} className="bg-emerald-500/20 text-emerald-400 rounded px-3 py-1.5 text-xs font-bold">Approve</button>
-                    <button onClick={() => rejectDeposit(user.id, idx)} className="bg-red-500/20 text-red-400 rounded px-3 py-1.5 text-xs font-bold">Reject</button>
-                  </div>
-                </div>
-              ))
-            )
-          }
-        </div>
-
-        {/* ─── PENDING WITHDRAWALS ─── */}
-        <div className="bg-[#161A1E] border border-white/10 rounded-2xl p-5 shadow-xl space-y-3 mb-6">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Pending Withdrawals</h3>
-          {users.filter(u => u.pendingWithdrawals && u.pendingWithdrawals.length > 0).length === 0 ? 
-            <p className="text-xs text-gray-500 font-mono">No pending withdrawals.</p> :
-            users.filter(u => u.pendingWithdrawals && u.pendingWithdrawals.length > 0).map((user) => 
-              user.pendingWithdrawals.map((req, idx) => (
-                <div key={`${user.id}-wd-${idx}`} className="bg-[#0B0E11] border border-white/5 rounded-xl p-3 flex justify-between items-center">
-                  <div>
-                    <p className="text-xs font-bold text-white">{user.email}</p>
-                    <p className="text-[11px] text-amber-500 font-mono">₹{req.amount}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => approveWithdrawal(user.id, idx)} className="bg-amber-500/20 text-amber-400 rounded px-3 py-1.5 text-xs font-bold">Approve</button>
-                    <button onClick={() => rejectWithdrawal(user.id, idx)} className="bg-red-500/20 text-red-400 rounded px-3 py-1.5 text-xs font-bold">Reject</button>
-                  </div>
-                </div>
-              ))
-            )
-          }
-        </div>
-
-        {/* ─── PRODUCT MANAGEMENT ─── */}
-        <div className="bg-[#161A1E] border border-white/10 rounded-2xl p-5 shadow-xl">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Product Management</h3>
-          <form onSubmit={addProduct} className="flex gap-2 mb-4 flex-wrap">
-            <input type="text" value={newProductName} onChange={e => setNewProductName(e.target.value)} placeholder="Product Name" className="flex-1 min-w-[150px] bg-[#0B0E11] border border-white/10 rounded-lg p-2 text-xs text-white" required />
-            <input type="number" value={newProductPrice} onChange={e => setNewProductPrice(e.target.value)} placeholder="Price (VC)" className="w-32 bg-[#0B0E11] border border-white/10 rounded-lg p-2 text-xs text-white" required />
-            <button type="submit" className="bg-[#F0A818] text-black rounded-lg px-4 py-2 text-xs font-bold">Add</button>
-          </form>
-          <div className="space-y-2">
-            {products.map((p) => (
-              <div key={p.id} className="flex justify-between items-center bg-[#0B0E11] rounded-lg px-3 py-2 border border-white/5">
-                <span className="text-xs">{p.name} — <span className="text-[#F0A818]">{p.priceCoins} VC</span></span>
-                <button onClick={() => deleteProduct(p.id)} className="bg-red-500/10 text-red-400 px-2 py-0.5 rounded text-[10px]">Delete</button>
+        {/* ─── TAB 1: PENDING CARD PURCHASE ORDERS ─── */}
+        {activeTab === 'orders' && (
+          <div className="space-y-3">
+            {pendingOrders.length === 0 ? (
+              <div className="bg-[#11161A] rounded-2xl p-8 text-center border border-white/[0.08]">
+                <p className="text-sm text-slate-400">No pending card purchase orders.</p>
               </div>
-            ))}
+            ) : (
+              pendingOrders.map((order) => (
+                <div
+                  key={order.orderId}
+                  className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4 flex justify-between items-center"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">{order.userName || order.userFullName}</p>
+                      <span className="text-[9px] text-[#E5C158]/70">#{order.orderId}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">{order.userEmail} • +91 {order.userPhone}</p>
+                    <p className="text-sm text-[#E5C158] font-bold mt-2 tabular-nums">
+                      {order.type === 'custom_deposit'
+                        ? `Custom Deposit: ₹${fmt(order.amount)} • Locked ${
+                            ((Number(order.lockedRate) || rateForAmount(order.amount)) * 100).toFixed(1)
+                          }%/month`
+                        : `Card: ${order.cardName} • Capital: ₹${fmt(order.amount)}`}
+                    </p>
+                    <div className="mt-1 bg-[#090C0E] border border-white/[0.08] p-2 rounded-xl inline-block">
+                      <p className="text-[10px] text-slate-400">User-Submitted Bank UTR:</p>
+                      <p className="text-xs font-black text-emerald-400 tracking-wider">{order.bankUtr}</p>
+                    </div>
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      Submitted: {new Date(order.requestedAt).toLocaleString('en-IN')}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => handleApproveOrder(order)}
+                      disabled={actionLoading}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-black font-bold px-4 py-2 rounded-xl text-xs uppercase"
+                    >
+                      {actionLoading ? 'Activating...' : 'Approve & Activate'}
+                    </button>
+                    <button
+                      onClick={() => handleRejectOrder(order)}
+                      disabled={actionLoading}
+                      className="bg-red-600/20 border border-red-500/30 hover:bg-red-500/30 text-red-400 font-bold px-4 py-1.5 rounded-xl text-xs uppercase"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
-        </div>
+        )}
+
+        {/* ─── TAB 2: PENDING REDEMPTIONS ─── */}
+        {activeTab === 'redeems' && (
+          <div className="space-y-3">
+            {pendingRedeems.length === 0 ? (
+              <div className="bg-[#11161A] rounded-2xl p-8 text-center border border-white/[0.08]">
+                <p className="text-sm text-slate-400">No pending redemption requests.</p>
+              </div>
+            ) : (
+              pendingRedeems.map((req) => (
+                <div
+                  key={req.id}
+                  className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4 flex justify-between items-center"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-white">{req.userName || req.userFullName}</p>
+                      <span className="text-[9px] text-[#E5C158]/70">#{req.id}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">{req.userEmail}</p>
+                    <p className="text-xs text-[#E5C158] font-bold mt-2 tabular-nums">
+                      Gross: ₹{fmt(req.grossAmount)} ➔ Net Payout: ₹{fmt(req.amount || req.netPayout)}
+                    </p>
+                    <p className="text-[10px] text-emerald-400 font-bold mt-1">
+                      UPI ID: {req.destinationUpi || req.userUpiId || 'Not Configured'}
+                    </p>
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      Phone: +91 {req.userPhone || 'N/A'} • {new Date(req.requestedAt).toLocaleString('en-IN')}
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setSelectedRequest(req);
+                      setBankUtr('');
+                      setActionError('');
+                    }}
+                    className="bg-[#E5C158]/15 border border-[#D4AF37]/40 text-[#E5C158] px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#E5C158]/25"
+                  >
+                    Audit & Settle
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ─── TAB 3: REGISTERED OPERATORS ─── */}
+        {activeTab === 'users' && (
+          <div className="space-y-3">
+            {users
+              .filter((u) => u.role !== 'admin')
+              .map((u) => (
+                <div key={u.id} className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-sm font-bold text-white">{u.fullName || 'Operator'}</p>
+                      <p className="text-xs text-slate-400">{u.email}</p>
+                      <p className="text-[10px] text-[#E5C158]/80 mt-1">
+                        Active Cards: {(u.activeCards || []).join(', ') || 'None'} • UPI: {u.upiId || 'Incomplete'}
+                      </p>
+                    </div>
+                    <span
+                      className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                        u.profileCompleted
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                      }`}
+                    >
+                      {u.profileCompleted ? 'Audited' : 'Incomplete'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* REDEMPTION MODAL WITH BANK UTR NUMBER INPUT */}
+        {selectedRequest && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
+            <div className="w-full max-w-md bg-[#11161A] border border-[#D4AF37]/30 rounded-3xl p-6 text-slate-200">
+              <div className="flex justify-between items-center pb-3 border-b border-white/[0.08]">
+                <h3 className="text-sm font-bold text-white uppercase">Redemption Settlement Audit</h3>
+                <button
+                  onClick={() => setSelectedRequest(null)}
+                  className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-slate-400"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-2 text-xs">
+                <p>Operator: <strong className="text-white">{selectedRequest.userName}</strong></p>
+                <p>Unmasked UPI ID: <strong className="text-[#E5C158] text-sm font-mono">{selectedRequest.destinationUpi || selectedRequest.userUpiId}</strong></p>
+                <p>Phone Number: <strong className="text-slate-200">+91 {selectedRequest.userPhone}</strong></p>
+                <div className="bg-[#090C0E] p-3 rounded-xl border border-white/[0.08] text-sm">
+                  <p className="text-slate-400 text-xs">Net Amount to Transfer via UPI:</p>
+                  <p className="text-2xl font-black text-emerald-400 font-mono mt-1 tabular-nums">
+                    ₹{fmt(selectedRequest.amount || selectedRequest.netPayout)}
+                  </p>
+                </div>
+
+                <div className="pt-2">
+                  <label className="text-[10px] text-slate-400 uppercase block mb-1">
+                    Enter Bank UTR / Transaction Reference (12 digits)
+                  </label>
+                  <input
+                    type="text"
+                    value={bankUtr}
+                    onChange={(e) => setBankUtr(e.target.value)}
+                    placeholder="e.g. 409821892182"
+                    className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl p-3 text-xs text-white focus:border-[#E5C158] outline-none tabular-nums"
+                  />
+                  <p className="text-[8px] text-slate-500 mt-1">
+                    *This UTR will be permanently logged into the operator's digital ledger passbook.
+                  </p>
+                </div>
+
+                {actionError && (
+                  <p className="text-xs text-red-400 bg-red-500/10 p-2 rounded-xl text-center">
+                    {actionError}
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-4">
+                  <button
+                    onClick={() => handleApproveRedeem(selectedRequest)}
+                    disabled={actionLoading}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-3 rounded-xl text-xs uppercase"
+                  >
+                    {actionLoading ? 'Saving...' : 'Approve & Mark Settled'}
+                  </button>
+                  <button
+                    onClick={() => setSelectedRequest(null)}
+                    disabled={actionLoading}
+                    className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl text-xs uppercase"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
-};
-
-export default AdminPanel;
+}

@@ -3,16 +3,17 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: #0b0b0b;
+  background-color: #090c0e; /* matte obsidian */
   color: #ffffff;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-variant-numeric: tabular-nums;
   min-height: 100vh;
 }
 .app-container {
   max-width: 600px;
   margin: 0 auto;
   padding: 20px;
-  padding-bottom: 80px; /* Space for Social Ticker */
+  padding-bottom: 80px;
   position: relative;
 }
 
@@ -30,7 +31,7 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 15px 0;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 20px;
@@ -38,7 +39,7 @@ body {
 .brand {
   font-size: 1.4rem;
   font-weight: bold;
-  color: #e5b94f;
+  color: #e5c158; /* champagne */
   letter-spacing: 1px;
 }
 .nav-actions {
@@ -51,7 +52,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #4ade80;
+  color: #34d399;
   font-size: 0.75rem;
   font-weight: bold;
   margin-right: 8px;
@@ -59,7 +60,7 @@ body {
 .pulse-dot {
   width: 8px;
   height: 8px;
-  background: #4ade80;
+  background: #34d399;
   border-radius: 50%;
   animation: pulse-animation 1.5s infinite;
 }
@@ -70,7 +71,8 @@ body {
 }
 .currency-toggle {
   display: flex;
-  background: #222;
+  background: #11161a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
   padding: 3px;
 }
@@ -86,13 +88,13 @@ body {
   transition: 0.3s;
 }
 .currency-btn.active {
-  background: #e5b94f;
+  background: #e5c158;
   color: #000;
 }
 .btn-secondary {
-  background: #222;
+  background: #11161a;
   color: #fff;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 8px 14px;
   border-radius: 6px;
   cursor: pointer;
@@ -100,7 +102,7 @@ body {
   font-size: 0.8rem;
   transition: 0.2s;
 }
-.btn-secondary:hover { background: #333; }
+.btn-secondary:hover { background: #161c21; }
 .bell-btn {
   background: transparent;
   border: none;
@@ -117,7 +119,7 @@ body {
   height: 8px;
   background: #ef4444;
   border-radius: 50%;
-  border: 2px solid #0b0b0b;
+  border: 2px solid #090c0e;
 }
 
 /* --- Auth Screen --- */
@@ -126,30 +128,30 @@ body {
   justify-content: center;
   align-items: center;
   height: 100vh;
-  background-color: #0b0b0b;
+  background-color: #090c0e;
 }
 .auth-card {
-  background: #1a1a1a;
+  background: #11161a; /* matte surface — no drop-shadow */
   padding: 2.5rem;
   border-radius: 12px;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   width: 100%;
   max-width: 400px;
 }
-.auth-card h2 { text-align: center; color: #e5b94f; margin-bottom: 1.5rem; }
+.auth-card h2 { text-align: center; color: #e5c158; margin-bottom: 1.5rem; }
 .form-group { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
 .form-group label { font-size: 0.9rem; color: #aaa; }
 .form-group input {
   padding: 0.75rem;
   border-radius: 6px;
-  border: 1px solid #333;
-  background: #222;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #090c0e;
   color: #fff;
   font-size: 1rem;
 }
 .error-msg { color: #ef4444; font-size: 0.9rem; margin: 0; }
 .btn-primary {
-  background: #e5b94f;
+  background: #e5c158;
   color: #000;
   padding: 0.75rem;
   border-radius: 6px;
@@ -160,14 +162,14 @@ body {
   width: 100%;
   transition: 0.3s;
 }
-.btn-primary:hover { background: #f5c95f; transform: scale(1.02); }
+.btn-primary:hover { background: #f0d27a; }
 .toggle-account { text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: #888; }
-.toggle-account span { color: #e5b94f; cursor: pointer; text-decoration: underline; }
+.toggle-account span { color: #e5c158; cursor: pointer; text-decoration: underline; }
 
 /* --- Hero Section (Withdraw) --- */
 .hero-card {
-  background: linear-gradient(135deg, #141414, #1a1a1a);
-  border: 1px solid #222;
+  background: #11161a; /* flat matte, gradient removed */
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   padding: 20px;
   display: flex;
@@ -176,11 +178,11 @@ body {
   margin-bottom: 25px;
 }
 .profit-title { font-size: 0.8rem; color: #888; margin-bottom: 5px; }
-.profit-value { font-size: 2.5rem; font-weight: bold; color: #4ade80; }
+.profit-value { font-size: 2.5rem; font-weight: bold; color: #34d399; }
 .withdraw-btn {
-  background: #333;
+  background: #11161a;
   color: #666;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: bold;
@@ -189,15 +191,15 @@ body {
   font-size: 0.9rem;
 }
 .withdraw-btn.ready {
-  background: #28a745;
+  background: #059669;
   color: #fff;
   cursor: pointer;
-  box-shadow: 0 0 20px rgba(40, 167, 69, 0.3);
+  box-shadow: none; /* was a green glow */
 }
-.withdraw-btn.ready:hover { transform: scale(1.02); }
-.separator { height: 1px; background: #222; margin-bottom: 25px; width: 100%; }
+.withdraw-btn.ready:hover { background: #10b981; }
+.separator { height: 1px; background: rgba(255, 255, 255, 0.08); margin-bottom: 25px; width: 100%; }
 
-/* --- Premium 3D Cards --- */
+/* --- Premium Board Cards (matte, no 3D glow) --- */
 .cards-container { display: flex; flex-direction: column; gap: 25px; }
 .card-wrapper {
   position: relative;
@@ -214,28 +216,27 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transform: perspective(800px) rotateX(0deg) rotateY(0deg);
-  transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  transition: transform 0.3s ease;
+  box-shadow: none;
   overflow: hidden;
 }
 .card-wrapper:not(.locked):hover .card {
-  transform: perspective(800px) rotateX(2deg) rotateY(8deg) scale(1.02);
-  box-shadow: 0 30px 80px rgba(229, 185, 79, 0.35);
+  transform: translateY(-2px); /* razor-sharp lift, no glow */
+  box-shadow: none;
 }
 .card::before {
   content: '';
   position: absolute;
   top: -50%; left: -50%; width: 200%; height: 200%;
-  background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.15) 0%, transparent 60%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, transparent 55%);
   pointer-events: none;
   z-index: 1;
 }
 .card > * { position: relative; z-index: 2; }
 
 .card.silver { background: #e0e5ec; }
-.card.gold { background: linear-gradient(135deg, #fce181 0%, #e5b94f 100%); }
-.card.diamond { background: #2196F3; color: #fff; }
+.card.gold { background: linear-gradient(135deg, #fce181 0%, #d4af37 100%); }
+.card.diamond { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff; }
 
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; }
 .card-title { font-size: 1.2rem; font-weight: bold; font-style: italic; color: #333; }
@@ -250,8 +251,8 @@ body {
 .price-info .label { font-size: 0.7rem; text-transform: uppercase; color: #555; margin-bottom: 2px; }
 .card.diamond .price-info .label { color: rgba(255,255,255,0.7); }
 .price { font-size: 2rem; font-weight: bold; margin: 0; transition: color 0.2s ease; }
-.price.flash-up { color: #00ff88 !important; }
-.price.flash-down { color: #ff4d4d !important; }
+.price.flash-up { color: #059669 !important; }
+.price.flash-down { color: #dc2626 !important; }
 
 .progress-container { width: 100%; height: 4px; background: rgba(0,0,0,0.1); border-radius: 4px; margin-top: 5px; overflow: hidden; }
 .progress-bar { height: 100%; background: #333; border-radius: 4px; transition: width 0.3s ease; }
@@ -265,12 +266,12 @@ body {
 .card.diamond .card-footer .value { color: #fff; }
 .name { font-weight: bold; font-size: 1rem; margin-top: 5px; display: block; color: #000; }
 
-/* --- Scarcity Badge & Locked Actions --- */
+/* --- Scarcity Badge (flat, no glow) --- */
 .scarcity-badge {
   position: absolute;
   top: 10px; right: 10px;
   z-index: 10;
-  background: linear-gradient(135deg, #ffb347, #ff8c00);
+  background: linear-gradient(135deg, #d4af37, #8a7327);
   color: #000;
   padding: 6px 12px;
   border-radius: 20px;
@@ -280,9 +281,9 @@ body {
   flex-direction: column;
   align-items: flex-end;
   text-align: right;
-  box-shadow: 0 0 15px rgba(255, 140, 0, 0.4);
+  box-shadow: none;
 }
-.scarcity-badge .highlight-text { font-size: 0.8rem; color: #fff; text-shadow: 0 0 5px rgba(0,0,0,0.5); }
+.scarcity-badge .highlight-text { font-size: 0.8rem; color: #fff; }
 .scarcity-badge .sub-text { font-size: 0.6rem; color: #222; font-weight: 600; margin-top: 2px; }
 
 .card-actions {
@@ -300,31 +301,30 @@ body {
   transition: 0.2s;
   font-size: 0.9rem;
 }
-.unlock-btn { background: #e5b94f; color: #000; }
-.unlock-btn:hover { transform: scale(1.02); }
-.details-btn { background: #1a1a1a; color: #fff; border: 1px solid #333; }
-.details-btn:hover { background: #222; }
+.unlock-btn { background: #e5c158; color: #000; }
+.unlock-btn:hover { background: #f0d27a; }
+.details-btn { background: #11161a; color: #fff; border: 1px solid rgba(255, 255, 255, 0.08); }
+.details-btn:hover { background: #161c21; }
 
-/* --- Modals (Overlay) --- */
+/* --- Modals (flat overlay, blur removed) --- */
 .modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.8);
+  background: rgba(5, 7, 8, 0.9);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  backdrop-filter: blur(5px);
 }
 .modal-content {
-  background: #1a1a1a;
+  background: #11161a;
   padding: 2rem;
   border-radius: 16px;
   width: 90%;
   max-width: 450px;
   color: #fff;
-  border: 1px solid #333;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
   position: relative;
 }
 .modal-header {
@@ -346,19 +346,20 @@ body {
 .empty-msg { color: #666; text-align: center; }
 .notification-item {
   padding: 0.75rem;
-  background: #222;
+  background: #090c0e;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   margin-bottom: 10px;
 }
-.notification-item h4 { margin: 0 0 0.25rem 0; color: #e5b94f; }
+.notification-item h4 { margin: 0 0 0.25rem 0; color: #e5c158; }
 .notification-item p { margin: 0; font-size: 0.9rem; color: #aaa; }
-.highlight-role { color: #e5b94f; border-bottom: 1px solid #e5b94f; display: inline-block; padding-bottom: 2px; }
+.highlight-role { color: #e5c158; border-bottom: 1px solid #e5c158; display: inline-block; padding-bottom: 2px; }
 
 /* --- Footer & Telegram --- */
 .footer {
   margin-top: 40px;
   padding-top: 20px;
-  border-top: 1px solid #222;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -367,25 +368,26 @@ body {
 }
 .footer-links { font-size: 0.7rem; color: #666; text-align: center; }
 .footer-links a { color: #888; text-decoration: none; margin: 0 5px; transition: 0.2s; }
-.footer-links a:hover { color: #e5b94f; }
+.footer-links a:hover { color: #e5c158; }
 .telegram-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #24A1DE;
+  background: #1e293b;
   color: #fff;
   padding: 10px 25px;
   border-radius: 30px;
   text-decoration: none;
   font-weight: bold;
   font-size: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   transition: 0.3s;
-  box-shadow: 0 4px 15px rgba(36, 161, 222, 0.3);
+  box-shadow: none;
 }
-.telegram-btn:hover { transform: scale(1.05); background: #1a8bbf; }
+.telegram-btn:hover { background: #263449; }
 .footer-disclaimer { font-size: 0.6rem; color: #444; text-align: center; margin-top: 5px; }
 
-/* --- Social Proof Ticker --- */
+/* --- Social Proof Ticker (flat) --- */
 .social-ticker {
   position: fixed;
   bottom: 20px;
@@ -393,14 +395,14 @@ body {
   transform: translateX(-50%);
   width: 90%;
   max-width: 500px;
-  background: #161616;
-  border: 1px solid #333;
+  background: #11161a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 30px;
   padding: 10px 15px;
   display: flex;
   align-items: center;
   gap: 10px;
-  box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+  box-shadow: none;
   z-index: 100;
   color: #fff;
   font-size: 0.85rem;
