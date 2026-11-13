@@ -1,63 +1,67 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { useAuth } from '../context/AuthContext';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import {
+  useAuth,
+  TIER_CONFIG,
+  MIN_DEPOSIT,
+  WELCOME_BONUS,
+  PROFIT_SPLIT,
+  rateForAmount,
+} from '../context/AuthContext';
 
-// Razor-sharp matte asset tiers mapped to the brushed-metal palette:
-//   Starter            → Brushed Emerald
-//   Growth/Elite/Prime → Brushed Titanium Slate
-//   Signature          → Matte Obsidian (24K Gold foil)
-const ALLOCATION_TIERS = [
-  {
-    id: 'starter',
+const SECONDS_IN_MONTH = 30 * 24 * 3600;
+
+// Every tier's numbers (capital + monthly gross yield) come straight from
+// TIER_CONFIG so the cards, the calculator and the live ledger never drift.
+// This map only adds presentation: brushed-metal palette + labels.
+const TIER_STYLE = {
+  starter: {
     name: 'STARTER CARD',
     tierCode: 'TIER-I',
-    capital: 2000,
     accent: '#34D399',
     edge: 'border-[#D4AF37]/30',
     gradient: 'from-[#064E3B] to-[#022C22]',
     badgeBg: 'bg-emerald-500/10 text-emerald-300 border-emerald-400/25',
   },
-  {
-    id: 'growth',
+  growth: {
     name: 'GROWTH CARD',
     tierCode: 'TIER-II',
-    capital: 5000,
     accent: '#CBD5E1',
     edge: 'border-white/[0.14]',
     gradient: 'from-[#1E293B] to-[#0F172A]',
     badgeBg: 'bg-slate-400/10 text-slate-300 border-slate-300/25',
   },
-  {
-    id: 'elite',
+  elite: {
     name: 'ELITE CARD',
     tierCode: 'TIER-III',
-    capital: 10000,
     accent: '#E2E8F0',
     edge: 'border-[#D4AF37]/25',
     gradient: 'from-[#1E293B] to-[#0F172A]',
     badgeBg: 'bg-slate-300/10 text-slate-200 border-slate-300/25',
   },
-  {
-    id: 'prime',
+  prime: {
     name: 'PRIME CARD',
-    tierCode: 'TIER-IV (INSTITUTIONAL)',
-    capital: 50000,
+    tierCode: 'TIER-IV',
     accent: '#E5C158',
     edge: 'border-[#D4AF37]/35',
     gradient: 'from-[#1E293B] to-[#0F172A]',
     badgeBg: 'bg-[#E5C158]/10 text-[#E5C158] border-[#D4AF37]/30',
   },
-  {
-    id: 'signature',
+  signature: {
     name: 'SIGNATURE CARD',
-    tierCode: 'TIER-V (SOVEREIGN)',
-    capital: 100000,
+    tierCode: 'TIER-V',
     accent: '#E5C158',
     edge: 'border-[#D4AF37]/40',
     gradient: 'from-[#141414] to-[#070707]',
     badgeBg: 'bg-[#E5C158]/15 text-[#E5C158] border-[#D4AF37]/40',
   },
-];
+};
 
+const ALLOCATION_TIERS = Object.values(TIER_CONFIG).map((tier) => ({
+  ...tier,
+  ...(TIER_STYLE[tier.id] || {}),
+}));
+
+const pct = (rate) => `${(rate * 100).toFixed(1)}%`;
 const fmt = (n) => Number(n || 0).toLocaleString('en-IN');
 
 const getWalkthroughSeen = () => {
@@ -83,9 +87,11 @@ export default function WelcomePage({ refCode }) {
   // Check if first-time user
   const [hasSeenWalkthrough, setHasSeenWalkthrough] = useState(getWalkthroughSeen);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [slideDir, setSlideDir] = useState(1); // 1 = forward, -1 = back
 
   // Shared Data States (100% Same Existing Data & Algo)
   const [selectedTier, setSelectedTier] = useState(ALLOCATION_TIERS[3]); // Default Prime Card
+  const [calcAmount, setCalcAmount] = useState(ALLOCATION_TIERS[3].capital); // ₹100 – ₹1,00,000
   const [monthlyRate, setMonthlyRate] = useState(4.0); // 3.5% – 8.0%
   const [isSignInMode, setIsSignInMode] = useState(false);
 
@@ -97,22 +103,34 @@ export default function WelcomePage({ refCode }) {
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState('');
 
-  // Math Calculations (Full Compounding, Same Algo)
-  const capital = selectedTier.capital;
-  const r = monthlyRate / 100;
-  const grossProfit24m = Math.round(capital * Math.pow(1 + r, 24) - capital);
-  const totalVal24m = capital + grossProfit24m;
+  // ── Slide 1: live-ticking ₹1,100 (₹100 deposit + ₹1,000 bonus) preview ──
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
 
-  const grossProfit12m = Math.round(capital * Math.pow(1 + r, 12) - capital);
-  const totalVal12m = capital + grossProfit12m;
+  const bonusBase = MIN_DEPOSIT + WELCOME_BONUS; // ₹100 + ₹1,000 = ₹1,100
+  const bonusMonthlyRate = rateForAmount(MIN_DEPOSIT);
+  const bonusLiveValue = bonusBase * Math.pow(1 + bonusMonthlyRate, elapsedSeconds / SECONDS_IN_MONTH);
+  const bonusEarned = bonusLiveValue - bonusBase;
+
+  // Math Calculations (Full Compounding, Same Algo)
+  const r = monthlyRate / 100;
+  const grossProfit24m = Math.round(calcAmount * Math.pow(1 + r, 24) - calcAmount);
+  const totalVal24m = calcAmount + grossProfit24m;
+  const netProfit24m = Math.round(grossProfit24m * PROFIT_SPLIT);
+
+  const grossProfit12m = Math.round(calcAmount * Math.pow(1 + r, 12) - calcAmount);
+  const totalVal12m = calcAmount + grossProfit12m;
 
   // Memoized SVG Trajectory Curve
   const { pathD, svgWidth, svgHeight } = useMemo(() => {
     const width = 320;
     const height = 90;
-    const points = Array.from({ length: 25 }, (_, m) => capital * Math.pow(1 + r, m));
+    const points = Array.from({ length: 25 }, (_, m) => calcAmount * Math.pow(1 + r, m));
     const max = points[24];
-    const min = capital;
+    const min = calcAmount;
 
     const d = points
       .map((v, i) => {
@@ -123,7 +141,7 @@ export default function WelcomePage({ refCode }) {
       .join(' ');
 
     return { pathD: d, svgWidth: width, svgHeight: height };
-  }, [capital, r]);
+  }, [calcAmount, r]);
 
   const finishWalkthrough = (signIn = false) => {
     markWalkthroughSeen();
@@ -133,6 +151,31 @@ export default function WelcomePage({ refCode }) {
     setTimeout(() => {
       formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 150);
+  };
+
+  // ── Slide navigation (buttons, dots, progress bar, swipe) ──
+  const goToSlide = (idx) => {
+    if (idx === currentSlide) return;
+    setSlideDir(idx > currentSlide ? 1 : -1);
+    setAuthError('');
+    setCurrentSlide(idx);
+  };
+  const goNext = () => goToSlide(Math.min(currentSlide + 1, 3));
+  const goPrev = () => goToSlide(Math.max(currentSlide - 1, 0));
+
+  // Touch swipe (mobile) — left = next, right = previous.
+  const touchStartX = useRef(null);
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+  const handleTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(dx) > 55) {
+      if (dx < 0) goNext();
+      else goPrev();
+    }
+    touchStartX.current = null;
   };
 
   const handleSubmit = async (e) => {
@@ -150,11 +193,11 @@ export default function WelcomePage({ refCode }) {
 
     if (!isSigningIn) {
       if (!cleanName) {
-        setAuthError('Please enter your full legal name.');
+        setAuthError('Please enter your full name.');
         return;
       }
       if (!agreed) {
-        setAuthError('You must acknowledge protocol parameters before initialization.');
+        setAuthError('Please accept the Terms & 50/50 Profit-Sharing Policy to continue.');
         return;
       }
     }
@@ -190,299 +233,459 @@ export default function WelcomePage({ refCode }) {
   };
 
   // ══════════════════════════════════════════════════════════════════
-  // VIEW 1: FIRST-TIME USER (MINIMALIST 4-SLIDE WALKTHROUGH)
+  // VIEW 1: FIRST-TIME USER (INTERACTIVE 4-SLIDE WALKTHROUGH)
   // ══════════════════════════════════════════════════════════════════
   if (!hasSeenWalkthrough) {
     return (
       <div className="min-h-screen bg-[#090C0E] text-[#E2E8F0] relative overflow-hidden font-sans tabular-nums flex flex-col justify-between p-5 selection:bg-[#E5C158]/25">
-        {/* Top Minimal Bar */}
-        <header className="relative z-10 flex justify-between items-center pt-2">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#E5C158] to-[#8A7327] flex items-center justify-center font-black text-black text-xs">
-              V
+        {/* Top Bar */}
+        <div className="relative z-10">
+          <header className="flex justify-between items-center pt-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#E5C158] to-[#8A7327] flex items-center justify-center font-black text-black text-xs">
+                V
+              </div>
+              <span className="text-xs font-black tracking-wider text-white">VYOM NETWORK</span>
             </div>
-            <span className="text-xs font-black tracking-wider text-white">VYOM NETWORK</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => finishWalkthrough(true)}
-            className="text-[11px] font-mono font-bold text-[#E5C158] hover:text-white px-3 py-1 rounded-full border border-[#D4AF37]/30 bg-[#E5C158]/5"
-          >
-            Sign In
-          </button>
-        </header>
+            <button
+              type="button"
+              onClick={() => finishWalkthrough(true)}
+              className="text-[11px] font-mono font-bold text-[#E5C158] hover:text-white px-3 py-1 rounded-full border border-[#D4AF37]/30 bg-[#E5C158]/5 transition-all active:scale-95"
+            >
+              Sign In
+            </button>
+          </header>
 
-        {/* ─── SLIDE CONTAINER ─── */}
-        <main className="relative z-10 max-w-md mx-auto w-full my-auto py-6">
-          {/* SLIDE 1: OUR EXACT ORIGINAL HERO & VISION */}
-          {currentSlide === 0 && (
-            <div className="space-y-6 animate-fadeIn text-center">
-              <div className="w-20 h-20 mx-auto rounded-3xl bg-[#11161A] border border-[#D4AF37]/30 flex items-center justify-center text-3xl">
-                💎
-              </div>
-              <div>
-                <h2 className="text-2xl font-black tracking-tight text-white leading-tight">
-                  Where Disciplined Capital <span className="text-[#E5C158]">|</span> Achieves Exponential Velocity
-                </h2>
-                <p className="text-xs text-slate-400 mt-3 leading-relaxed max-w-sm mx-auto">
-                  Markets fluctuate on emotion. Mathematics multiplies on discipline. Step inside an engineered trajectory where capital compounds with algorithmic precision.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* SLIDE 2: OUR EXACT 5 CARDS & SELECTOR */}
-          {currentSlide === 1 && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="flex justify-between items-center px-1">
-                <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400">
-                  Select Asset Tier
-                </p>
-                <span className="text-[10px] font-mono font-bold text-[#E5C158]">{selectedTier.tierCode}</span>
-              </div>
-
-              {/* 3D Centerpiece Card */}
-              <div className={`rounded-2xl p-5 bg-gradient-to-br ${selectedTier.gradient} border ${selectedTier.edge} relative overflow-hidden`}>
-                <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent" />
-                <div className="flex justify-between items-start relative z-10">
-                  <div>
-                    <span className={`text-[9px] font-mono font-bold tracking-widest px-2.5 py-0.5 rounded-full border ${selectedTier.badgeBg} uppercase`}>
-                      {selectedTier.tierCode}
-                    </span>
-                    <h3 className="text-lg font-black tracking-wider text-white mt-2">
-                      {selectedTier.name}
-                    </h3>
-                  </div>
-                  <div className="w-9 h-7 rounded-md bg-gradient-to-br from-[#E5C158]/40 via-[#F5E6A8]/50 to-[#8A7327]/40 border border-[#E5C158]/40 p-0.5 flex flex-col justify-around">
-                    <div className="h-[1px] bg-black/50 w-full" />
-                    <div className="h-[1px] bg-black/50 w-full" />
-                  </div>
-                </div>
-
-                <div className="mt-5 relative z-10">
-                  <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">
-                    Asset Allocation Value
-                  </p>
-                  <p className="text-2xl font-black font-mono tracking-tight text-white mt-0.5">
-                    ₹{fmt(selectedTier.capital)}
-                  </p>
-                </div>
-
-                <div className="mt-4 pt-3 border-t border-white/[0.08] flex justify-between items-center text-[9px] font-mono text-slate-400 relative z-10">
-                  <span>HORIZON: 24 MONTHS</span>
-                  <span className="text-[#E5C158] font-bold">3.5%–8% MONTHLY YIELD</span>
-                </div>
-              </div>
-
-              {/* 5-Card Switcher */}
-              <div className="grid grid-cols-5 gap-1 bg-[#11161A] p-1.5 rounded-2xl border border-white/[0.08]">
-                {ALLOCATION_TIERS.map((tier) => {
-                  const isSelected = selectedTier.id === tier.id;
-                  return (
-                    <button
-                      type="button"
-                      key={tier.id}
-                      onClick={() => setSelectedTier(tier)}
-                      className={`py-2 px-1 rounded-xl text-center transition-all ${
-                        isSelected
-                          ? 'bg-[#E5C158]/15 border border-[#D4AF37]/40 text-white'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <p className="text-[9px] font-mono font-bold">
-                        ₹{tier.capital >= 1000 ? `${tier.capital / 1000}K` : tier.capital}
-                      </p>
-                      <p className="text-[7px] font-mono uppercase text-slate-500 truncate">
-                        {tier.name.replace(' CARD', '')}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* SLIDE 3: OUR EXACT REALISTIC YIELD CALIBRATOR & SVG CURVE */}
-          {currentSlide === 2 && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-5">
-                <div className="flex justify-between items-center mb-1">
-                  <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#E5C158] font-bold">
-                    Realistic Yield Calibrator
-                  </p>
-                  <span className="text-[11px] font-mono font-bold text-[#E5C158] bg-[#E5C158]/10 border border-[#D4AF37]/30 px-2.5 py-0.5 rounded-lg">
-                    {monthlyRate.toFixed(1)}% / Month
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Calibrate trajectory to project your compounding capital horizon.
-                </p>
-
-                {/* 3.5% - 8.0% Slider */}
-                <div className="mt-4">
-                  <input
-                    type="range"
-                    min="3.5"
-                    max="8.0"
-                    step="0.1"
-                    value={monthlyRate}
-                    onChange={(e) => setMonthlyRate(parseFloat(e.target.value))}
-                    className="w-full accent-[#E5C158] cursor-pointer h-2 bg-[#11161A] rounded-lg appearance-none"
-                  />
-                  <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1">
-                    <span>3.5% Min</span>
-                    <span>4.0% Calibrated</span>
-                    <span className="text-[#E5C158] font-bold">8.0% Max</span>
-                  </div>
-                </div>
-
-                {/* Dynamic SVG Curve */}
-                <div className="mt-3 bg-[#090C0E] rounded-xl p-2.5 border border-white/[0.08]">
-                  <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-16">
-                    <defs>
-                      <linearGradient id="walkthroughCurve" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#E5C158" stopOpacity="0.28" />
-                        <stop offset="100%" stopColor="#E5C158" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-                    <path d={`${pathD} L ${svgWidth} ${svgHeight} L 0 ${svgHeight} Z`} fill="url(#walkthroughCurve)" />
-                    <path d={pathD} fill="none" stroke="#E5C158" strokeWidth="2.2" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-                  </svg>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mt-3 text-xs font-mono">
-                  <div className="bg-[#0D1114] border border-white/[0.08] rounded-xl p-2.5">
-                    <p className="text-[8px] uppercase text-slate-400">12M Total Value</p>
-                    <p className="font-bold text-white mt-0.5 tabular-nums">₹{fmt(totalVal12m)}</p>
-                  </div>
-                  <div className="bg-[#0D1114] border border-[#D4AF37]/30 rounded-xl p-2.5">
-                    <p className="text-[8px] uppercase text-[#E5C158] font-bold">Your Gross Profit (24M)</p>
-                    <p className="font-black text-[#E5C158] mt-0.5 tabular-nums">+₹{fmt(grossProfit24m)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* SLIDE 4: OUR EXACT SYNDICATE & DIRECT AUTH FORM */}
-          {currentSlide === 3 && (
-            <div className="space-y-4 animate-fadeIn">
-              {/* Syndicate Preview */}
-              <div className="grid grid-cols-2 gap-2 bg-[#11161A] border border-white/[0.08] rounded-xl p-3 text-center">
-                <div>
-                  <p className="text-[8px] font-mono text-[#E5C158] uppercase">Tier-1 Direct Invite</p>
-                  <p className="text-sm font-black font-mono text-white mt-0.5 tabular-nums">+₹200</p>
-                </div>
-                <div>
-                  <p className="text-[8px] font-mono text-[#E5C158] uppercase">Tier-2 Syndicate</p>
-                  <p className="text-sm font-black font-mono text-white mt-0.5 tabular-nums">+₹100</p>
-                </div>
-              </div>
-
-              {/* Form Card */}
-              <div className="bg-[#11161A] border border-[#D4AF37]/30 rounded-2xl p-4">
-                <div className="text-center mb-3">
-                  <h3 className="text-sm font-black text-white uppercase tracking-wide">
-                    Claim ₹1,000 Welcome Allocation
-                  </h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                    Allocating {selectedTier.name} (₹{fmt(selectedTier.capital)})
-                  </p>
-                </div>
-
-                {authError && (
-                  <p className="text-[10px] font-mono text-red-400 bg-red-500/10 border border-red-500/20 p-2 rounded-lg text-center mb-2">
-                    {authError}
-                  </p>
-                )}
-
-                <form onSubmit={handleSubmit} className="space-y-2.5">
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Full Legal Name"
-                    required
-                    className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#E5C158] outline-none font-mono"
-                  />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Email Address"
-                    required
-                    className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#E5C158] outline-none font-mono"
-                  />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password (min 6 chars)"
-                    minLength={6}
-                    required
-                    className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#E5C158] outline-none font-mono"
-                  />
-
-                  {refCode && (
-                    <div className="bg-[#E5C158]/10 border border-[#D4AF37]/30 rounded-xl p-2 text-center text-[10px] font-mono text-[#E5C158]">
-                      Sponsor Connected: <span className="font-bold text-white">{refCode}</span>
-                    </div>
-                  )}
-
-                  <label className="flex items-start gap-1.5 pt-0.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={agreed}
-                      onChange={(e) => setAgreed(e.target.checked)}
-                      className="mt-0.5 accent-[#E5C158] cursor-pointer"
-                    />
-                    <span className="text-[9px] text-slate-400">
-                      I acknowledge protocol terms, risk disclosure, and mathematical compounding parameters.
-                    </span>
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-gradient-to-r from-[#E5C158] to-[#C9A227] text-black font-black py-3 rounded-xl text-xs uppercase tracking-wider active:scale-95 disabled:opacity-50"
-                  >
-                    {loading ? 'Processing...' : '⚡ Claim ₹1,000 & Create Account'}
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
-        </main>
-
-        {/* ─── BOTTOM CONTROLS (PAGINATION DOTS & NEXT / GET STARTED) ─── */}
-        <footer className="relative z-10 max-w-md mx-auto w-full pt-4 space-y-3">
-          {/* Pagination Dots */}
-          <div className="flex justify-center items-center gap-2">
+          {/* Progress bar across the 4 slides */}
+          <div className="max-w-md mx-auto w-full mt-4 flex gap-1.5">
             {[0, 1, 2, 3].map((idx) => (
               <button
                 type="button"
                 key={idx}
                 aria-label={`Go to slide ${idx + 1}`}
-                onClick={() => {
-                  setAuthError('');
-                  setCurrentSlide(idx);
-                }}
-                className={`transition-all duration-300 rounded-full ${
-                  currentSlide === idx
-                    ? 'w-6 h-1.5 bg-gradient-to-r from-[#E5C158] to-[#C9A227]'
-                    : 'w-1.5 h-1.5 bg-slate-600'
-                }`}
-              />
+                onClick={() => goToSlide(idx)}
+                className="h-1 flex-1 rounded-full bg-white/[0.08] overflow-hidden"
+              >
+                <span
+                  className={`block h-full rounded-full bg-gradient-to-r from-[#E5C158] to-[#C9A227] transition-all duration-500 ease-out ${
+                    idx <= currentSlide ? 'w-full' : 'w-0'
+                  }`}
+                />
+              </button>
             ))}
           </div>
+        </div>
 
-          {/* Action Button: Next or Get Started */}
-          <div className="flex justify-center">
+        {/* ─── SLIDE CONTAINER (swipe-enabled) ─── */}
+        <main
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          className="relative z-10 max-w-md mx-auto w-full my-auto py-6"
+        >
+          <div key={currentSlide} className={slideDir > 0 ? 'animate-slideLeft' : 'animate-slideRight'}>
+            {/* ── SLIDE 1: THE HOOK — ₹1,000 BONUS + ₹100 START ── */}
+            {currentSlide === 0 && (
+              <div className="space-y-5">
+                <div className="text-center">
+                  <h2 className="text-2xl font-black tracking-tight text-white leading-tight">
+                    Smart Wealth Growth <span className="text-[#E5C158]">—</span> Powered by 50/50 Profit Sharing
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-3 leading-relaxed max-w-sm mx-auto">
+                    We only make money when you make money. Start small, grow steadily, and keep half of every rupee we earn for you.
+                  </p>
+                </div>
+
+                {/* ₹1,000 Welcome Bonus Card (brushed emerald & gold) */}
+                <div className="metal-card metal-emerald rounded-2xl p-5">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[9px] font-mono font-bold tracking-widest px-2.5 py-0.5 rounded-full border border-[#D4AF37]/40 bg-[#E5C158]/15 text-[#E5C158] uppercase">
+                        Welcome Bonus
+                      </span>
+                      <p className="text-3xl font-black text-white mt-3 font-mono tabular-nums">
+                        ₹{fmt(WELCOME_BONUS)}
+                      </p>
+                      <p className="text-[10px] font-mono text-emerald-200/80 mt-0.5">
+                        Free credit added the moment you join
+                      </p>
+                    </div>
+                    <div className="w-11 h-9 rounded-lg bg-gradient-to-br from-[#E5C158]/40 via-[#F5E6A8]/50 to-[#8A7327]/40 border border-[#E5C158]/40 p-1 flex flex-col justify-around">
+                      <div className="h-[1px] bg-black/50 w-full" />
+                      <div className="h-[1px] bg-black/50 w-full" />
+                      <div className="h-[1px] bg-black/50 w-full" />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-white/[0.12]">
+                    <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-200/70">
+                      Add just ₹{MIN_DEPOSIT} to unlock
+                    </p>
+                    <p className="text-lg font-black text-white font-mono tabular-nums">
+                      ₹{fmt(bonusBase)}{' '}
+                      <span className="text-[10px] font-mono font-normal text-emerald-200/80">Active Capital</span>
+                    </p>
+                    <p className="text-[11px] font-mono font-bold text-emerald-300 tabular-nums mt-1">
+                      +₹{bonusEarned.toFixed(6)}{' '}
+                      <span className="text-emerald-200/60 font-normal">earned live · every second</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Trust badge */}
+                <div className="flex justify-center">
+                  <span className="text-[10px] font-mono font-bold text-[#E5C158] bg-[#E5C158]/10 border border-[#D4AF37]/30 rounded-full px-3 py-1.5 tracking-wide">
+                    ₹0 Fixed Fees • 50/50 Profit Share
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* ── SLIDE 2: PICK YOUR CARD OR START AT ₹100 ── */}
+            {currentSlide === 1 && (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <h2 className="text-xl font-black tracking-tight text-white leading-tight">
+                    Pick Your Card <span className="text-[#E5C158]">·</span> Or Start with ₹{MIN_DEPOSIT}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-2 leading-relaxed max-w-sm mx-auto">
+                    Every card earns monthly gross yield of {pct(TIER_CONFIG.starter.monthlyRate)}–{pct(TIER_CONFIG.signature.monthlyRate)}. Bigger cards simply earn a higher rate.
+                  </p>
+                </div>
+
+                <div className="flex justify-between items-center px-1">
+                  <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400">
+                    Choose Your Card
+                  </p>
+                  <span className="text-[10px] font-mono font-bold text-[#E5C158]">{selectedTier.tierCode}</span>
+                </div>
+
+                {/* Brushed-metal centerpiece card */}
+                <div
+                  className={`metal-card rounded-2xl p-5 bg-gradient-to-br ${selectedTier.gradient} border ${selectedTier.edge}`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className={`text-[9px] font-mono font-bold tracking-widest px-2.5 py-0.5 rounded-full border ${selectedTier.badgeBg} uppercase`}>
+                        {selectedTier.tierCode}
+                      </span>
+                      <h3 className="text-lg font-black tracking-wider text-white mt-2">
+                        {selectedTier.name}
+                      </h3>
+                    </div>
+                    <div className="w-9 h-7 rounded-md bg-gradient-to-br from-[#E5C158]/40 via-[#F5E6A8]/50 to-[#8A7327]/40 border border-[#E5C158]/40 p-0.5 flex flex-col justify-around">
+                      <div className="h-[1px] bg-black/50 w-full" />
+                      <div className="h-[1px] bg-black/50 w-full" />
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <p className="text-[9px] font-mono uppercase tracking-widest text-slate-400">
+                      Card Value
+                    </p>
+                    <p className="text-2xl font-black font-mono tracking-tight text-white mt-0.5 tabular-nums">
+                      ₹{fmt(selectedTier.capital)}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-white/[0.08] flex justify-between items-center text-[9px] font-mono text-slate-400">
+                    <span>COMPOUNDS MONTHLY</span>
+                    <span className="text-[#E5C158] font-bold">
+                      {pct(selectedTier.monthlyRate)} MONTHLY GROSS YIELD
+                    </span>
+                  </div>
+                </div>
+
+                {/* 5-Card Switcher */}
+                <div className="grid grid-cols-5 gap-1 bg-[#11161A] p-1.5 rounded-2xl border border-white/[0.08]">
+                  {ALLOCATION_TIERS.map((tier) => {
+                    const isSelected = selectedTier.id === tier.id;
+                    return (
+                      <button
+                        type="button"
+                        key={tier.id}
+                        onClick={() => {
+                          setSelectedTier(tier);
+                          setCalcAmount(tier.capital);
+                        }}
+                        className={`py-2 px-1 rounded-xl text-center transition-all ${
+                          isSelected
+                            ? 'bg-[#E5C158]/15 border border-[#D4AF37]/40 text-white'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <p className="text-[9px] font-mono font-bold">
+                          ₹{tier.capital >= 1000 ? `${tier.capital / 1000}K` : tier.capital}
+                        </p>
+                        <p className="text-[7px] font-mono uppercase text-slate-500 truncate">
+                          {tier.name.replace(' CARD', '')}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Quick start pill */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalcAmount(MIN_DEPOSIT);
+                    goToSlide(2);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-[#E5C158]/10 border border-[#D4AF37]/30 rounded-xl py-2.5 text-[10px] font-mono font-bold text-[#E5C158] uppercase tracking-wider active:scale-[0.98] transition-all"
+                >
+                  Or Start with ₹{MIN_DEPOSIT} Deposit <span>➔</span>
+                </button>
+              </div>
+            )}
+
+            {/* ── SLIDE 3: INTERACTIVE PROFIT CALCULATOR ── */}
+            {currentSlide === 2 && (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <h2 className="text-xl font-black tracking-tight text-white leading-tight">
+                    See Your Profit Add Up
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-2 leading-relaxed max-w-sm mx-auto">
+                    Move the sliders to project how your money could grow.
+                  </p>
+                </div>
+
+                <div className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-5">
+                  <div className="flex justify-between items-center mb-1">
+                    <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#E5C158] font-bold">
+                      Profit Calculator
+                    </p>
+                    <span className="text-[11px] font-mono font-bold text-[#E5C158] bg-[#E5C158]/10 border border-[#D4AF37]/30 px-2.5 py-0.5 rounded-lg tabular-nums">
+                      {monthlyRate.toFixed(1)}% / Month
+                    </span>
+                  </div>
+
+                  {/* Amount slider — ₹100 to ₹1,00,000 */}
+                  <div className="mt-4">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                        Amount
+                      </span>
+                      <span className="text-xs font-mono font-bold text-white tabular-nums">
+                        ₹{fmt(calcAmount)}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={MIN_DEPOSIT}
+                      max="100000"
+                      step="100"
+                      value={calcAmount}
+                      onChange={(e) => setCalcAmount(parseInt(e.target.value, 10))}
+                      className="w-full accent-[#E5C158] cursor-pointer h-2 bg-[#11161A] rounded-lg appearance-none"
+                    />
+                    <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1">
+                      <span>₹{MIN_DEPOSIT} Min</span>
+                      <span className="text-[#E5C158] font-bold">₹1,00,000 Max</span>
+                    </div>
+                  </div>
+
+                  {/* Rate slider — 3.5% to 8.0% */}
+                  <div className="mt-4">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                        Monthly Rate
+                      </span>
+                      <span className="text-xs font-mono font-bold text-[#E5C158] tabular-nums">
+                        {monthlyRate.toFixed(1)}%
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="3.5"
+                      max="8.0"
+                      step="0.1"
+                      value={monthlyRate}
+                      onChange={(e) => setMonthlyRate(parseFloat(e.target.value))}
+                      className="w-full accent-[#E5C158] cursor-pointer h-2 bg-[#11161A] rounded-lg appearance-none"
+                    />
+                    <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1">
+                      <span>3.5% Min</span>
+                      <span className="text-[#E5C158] font-bold">8.0% Max</span>
+                    </div>
+                  </div>
+
+                  {/* Animated SVG growth curve */}
+                  <div className="mt-4 bg-[#090C0E] rounded-xl p-2.5 border border-white/[0.08]">
+                    <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full h-16">
+                      <defs>
+                        <linearGradient id="walkthroughCurve" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#E5C158" stopOpacity="0.28" />
+                          <stop offset="100%" stopColor="#E5C158" stopOpacity="0.0" />
+                        </linearGradient>
+                      </defs>
+                      <path
+                        d={`${pathD} L ${svgWidth} ${svgHeight} L 0 ${svgHeight} Z`}
+                        fill="url(#walkthroughCurve)"
+                        className="transition-all duration-300"
+                      />
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke="#E5C158"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        vectorEffect="non-scaling-stroke"
+                        className="transition-all duration-300"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Outputs */}
+                  <div className="grid grid-cols-2 gap-2 mt-3 text-xs font-mono">
+                    <div className="bg-[#0D1114] border border-[#D4AF37]/30 rounded-xl p-2.5">
+                      <p className="text-[8px] uppercase text-[#E5C158] font-bold">Your Net 50% Profit (24M)</p>
+                      <p className="font-black text-[#E5C158] mt-0.5 tabular-nums">+₹{fmt(netProfit24m)}</p>
+                    </div>
+                    <div className="bg-[#0D1114] border border-white/[0.08] rounded-xl p-2.5">
+                      <p className="text-[8px] uppercase text-slate-400">Fixed Charges</p>
+                      <p className="font-black text-emerald-400 mt-0.5 tabular-nums">₹0</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[9px] font-mono text-slate-500 mt-2 text-center">
+                    Total gross profit over 24 months: <span className="text-white">₹{fmt(grossProfit24m)}</span> · Value:{' '}
+                    <span className="text-white">₹{fmt(totalVal24m)}</span>
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── SLIDE 4: REFER & EARN + INSTANT SIGNUP ── */}
+            {currentSlide === 3 && (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <h2 className="text-xl font-black tracking-tight text-white leading-tight">
+                    Refer Friends, <span className="text-[#E5C158]">Earn Rewards</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-2 leading-relaxed max-w-sm mx-auto">
+                    Earn on two levels — no investment needed to start earning from referrals.
+                  </p>
+                </div>
+
+                {/* 2-Level referral rewards */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-[#11161A] border border-[#D4AF37]/25 rounded-xl p-3 text-center">
+                    <p className="text-[8px] font-mono text-[#E5C158] uppercase tracking-wider font-semibold">
+                      Direct Referral
+                    </p>
+                    <p className="text-lg font-black font-mono text-white mt-0.5 tabular-nums">+₹200</p>
+                    <p className="text-[8px] text-slate-400 mt-0.5">When your friend joins</p>
+                  </div>
+                  <div className="bg-[#11161A] border border-[#D4AF37]/25 rounded-xl p-3 text-center">
+                    <p className="text-[8px] font-mono text-[#E5C158] uppercase tracking-wider font-semibold">
+                      Level-2 Bonus
+                    </p>
+                    <p className="text-lg font-black font-mono text-white mt-0.5 tabular-nums">+₹100</p>
+                    <p className="text-[8px] text-slate-400 mt-0.5">When they activate ₹2,000+</p>
+                  </div>
+                </div>
+
+                {/* Create Account card */}
+                <div className="bg-[#11161A] border border-[#D4AF37]/30 rounded-2xl p-4">
+                  <div className="text-center mb-3">
+                    <h3 className="text-sm font-black text-white uppercase tracking-wide">
+                      Create Your Account
+                    </h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Get ₹{fmt(WELCOME_BONUS)} bonus + start with just ₹{MIN_DEPOSIT}
+                    </p>
+                  </div>
+
+                  {authError && (
+                    <p className="text-[10px] font-mono text-red-400 bg-red-500/10 border border-red-500/20 p-2 rounded-lg text-center mb-2">
+                      {authError}
+                    </p>
+                  )}
+
+                  <form onSubmit={handleSubmit} className="space-y-2.5">
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="Full Name"
+                      required
+                      className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#E5C158] outline-none font-mono"
+                    />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Email Address"
+                      required
+                      className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#E5C158] outline-none font-mono"
+                    />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Password (min 6 chars)"
+                      minLength={6}
+                      required
+                      className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-[#E5C158] outline-none font-mono"
+                    />
+
+                    {refCode && (
+                      <div className="bg-[#E5C158]/10 border border-[#D4AF37]/30 rounded-xl p-2 text-center text-[10px] font-mono text-[#E5C158]">
+                        Referral Connected: <span className="font-bold text-white">{refCode}</span>
+                      </div>
+                    )}
+
+                    <label className="flex items-start gap-1.5 pt-0.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={agreed}
+                        onChange={(e) => setAgreed(e.target.checked)}
+                        className="mt-0.5 accent-[#E5C158] cursor-pointer"
+                      />
+                      <span className="text-[9px] text-slate-400">
+                        I agree to the Terms &amp; 50/50 Profit-Sharing Policy.
+                      </span>
+                    </label>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full bg-gradient-to-r from-[#E5C158] to-[#C9A227] text-black font-black py-3 rounded-xl text-xs uppercase tracking-wider active:scale-95 disabled:opacity-50 transition-all"
+                    >
+                      {loading ? 'Processing...' : 'Create Account & Get ₹1,000'}
+                    </button>
+                  </form>
+
+                  <button
+                    type="button"
+                    onClick={() => finishWalkthrough(true)}
+                    className="w-full text-center text-[10px] font-mono text-slate-400 hover:text-white mt-3 transition-colors"
+                  >
+                    Already registered? <span className="text-[#E5C158] font-bold underline">Sign In</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* ─── BOTTOM CONTROLS ─── */}
+        <footer className="relative z-10 max-w-md mx-auto w-full pt-4 space-y-3">
+          <div className="flex justify-center items-center gap-2">
+            <button
+              type="button"
+              onClick={goPrev}
+              disabled={currentSlide === 0}
+              className="text-[10px] font-mono text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed px-3 py-1"
+            >
+              ← Back
+            </button>
             {currentSlide < 3 ? (
               <button
                 type="button"
-                onClick={() => setCurrentSlide((prev) => prev + 1)}
-                className="w-full bg-gradient-to-r from-[#E5C158] to-[#C9A227] text-black font-extrabold py-3.5 rounded-2xl text-xs uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center gap-2"
+                onClick={goNext}
+                className="flex-1 bg-gradient-to-r from-[#E5C158] to-[#C9A227] text-black font-extrabold py-3.5 rounded-2xl text-xs uppercase tracking-wider active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <span>Continue</span>
                 <span>➔</span>
@@ -491,9 +694,9 @@ export default function WelcomePage({ refCode }) {
               <button
                 type="button"
                 onClick={() => finishWalkthrough(false)}
-                className="text-[10px] font-mono text-slate-400 hover:text-white underline pb-1"
+                className="flex-1 text-[10px] font-mono text-slate-400 hover:text-white underline py-3.5"
               >
-                Or View Full Overview Page
+                Or view the full overview page
               </button>
             )}
           </div>
@@ -503,7 +706,7 @@ export default function WelcomePage({ refCode }) {
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // VIEW 2: RETURNING USER (FULL EXISTING WELCOME PAGE DIRECTLY)
+  // VIEW 2: RETURNING USER (FULL OVERVIEW PAGE)
   // ══════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-[#090C0E] text-[#E2E8F0] relative overflow-hidden font-sans tabular-nums pb-32">
@@ -516,7 +719,7 @@ export default function WelcomePage({ refCode }) {
           <div>
             <h1 className="text-sm font-black tracking-wider text-white">VYOM NETWORK</h1>
             <p className="text-[8px] font-mono tracking-[0.25em] text-[#E5C158] uppercase -mt-0.5">
-              Capital Architecture
+              Smart Wealth Growth
             </p>
           </div>
         </div>
@@ -537,33 +740,37 @@ export default function WelcomePage({ refCode }) {
       {/* Hero Section */}
       <section className="relative z-10 max-w-md mx-auto px-5 pt-8 text-center">
         <h2 className="text-2xl font-black tracking-tight text-white leading-tight">
-          Where Disciplined Capital <span className="text-[#E5C158]">|</span> Achieves Exponential Velocity
+          Smart Wealth Growth <span className="text-[#E5C158]">—</span> Powered by 50/50 Profit Sharing
         </h2>
         <p className="text-xs text-slate-400 mt-2.5 leading-relaxed max-w-sm mx-auto">
-          Markets fluctuate on emotion. Mathematics multiplies on discipline. Step inside an engineered trajectory where capital compounds with algorithmic precision.
+          We only make money when you make money. Start with as little as ₹{MIN_DEPOSIT}, grow steadily, and keep half of every rupee we earn for you.
         </p>
+        <div className="flex justify-center mt-3">
+          <span className="text-[10px] font-mono font-bold text-[#E5C158] bg-[#E5C158]/10 border border-[#D4AF37]/30 rounded-full px-3 py-1.5 tracking-wide">
+            ₹0 Fixed Fees • 50/50 Profit Share • ₹{MIN_DEPOSIT} Minimum
+          </span>
+        </div>
       </section>
 
-      {/* 3D Cyber Wallet Card Stack */}
+      {/* Brushed-Metal Card Stack */}
       <section className="relative z-10 max-w-md mx-auto px-5 pt-7">
         <div className="flex justify-between items-center mb-3 px-1">
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-slate-400">
-            Select Asset Tier
+            Choose Your Card
           </p>
           <span className="text-[10px] font-mono font-bold text-[#E5C158]">{selectedTier.tierCode}</span>
         </div>
 
-        {/* 3D Wallet Deck */}
+        {/* Card Deck */}
         <div className="relative pt-2 pb-3">
           <div className="absolute top-0 left-5 right-5 h-20 rounded-2xl bg-white/[0.02] border border-white/[0.08] -translate-y-2 scale-[0.92] pointer-events-none" />
           <div className="absolute top-1 left-3 right-3 h-20 rounded-2xl bg-white/[0.03] border border-white/[0.08] -translate-y-1 scale-[0.96] pointer-events-none" />
 
           {/* Active Card */}
           <div
-            className={`relative rounded-2xl p-5 bg-gradient-to-br ${selectedTier.gradient} border ${selectedTier.edge} transition-all duration-300 overflow-hidden`}
+            className={`metal-card relative rounded-2xl p-5 bg-gradient-to-br ${selectedTier.gradient} border ${selectedTier.edge} transition-all duration-300`}
           >
-            <div className="absolute inset-0 pointer-events-none bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent" />
-            <div className="flex justify-between items-start relative z-10">
+            <div className="flex justify-between items-start">
               <div>
                 <span className={`text-[9px] font-mono font-bold tracking-widest px-2.5 py-0.5 rounded-full border ${selectedTier.badgeBg} uppercase`}>
                   {selectedTier.tierCode}
@@ -580,22 +787,23 @@ export default function WelcomePage({ refCode }) {
               </div>
             </div>
 
-            <div className="mt-5 relative z-10">
+            <div className="mt-5">
               <p className="text-[10px] font-mono uppercase tracking-widest text-slate-400">
-                Asset Allocation Value
+                Card Value
               </p>
               <div className="flex items-baseline gap-1 mt-0.5">
                 <span className="text-xl font-bold text-[#E5C158]">₹</span>
-                <span className="text-3xl font-black font-mono tracking-tight text-white">
+                <span className="text-3xl font-black font-mono tracking-tight text-white tabular-nums">
                   {fmt(selectedTier.capital)}
                 </span>
-                <span className="text-xs font-mono text-slate-400 ml-1.5">CAPITAL BASE</span>
               </div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-white/[0.08] flex justify-between items-center text-[10px] font-mono text-slate-400 relative z-10">
-              <span>HORIZON: 24 MONTHS</span>
-              <span className="text-[#E5C158] font-bold">3.5%–8% MONTHLY YIELD</span>
+            <div className="mt-4 pt-3 border-t border-white/[0.08] flex justify-between items-center text-[10px] font-mono text-slate-400">
+              <span>COMPOUNDS MONTHLY</span>
+              <span className="text-[#E5C158] font-bold">
+                {pct(selectedTier.monthlyRate)} MONTHLY GROSS YIELD
+              </span>
             </div>
           </div>
         </div>
@@ -608,7 +816,10 @@ export default function WelcomePage({ refCode }) {
               <button
                 type="button"
                 key={tier.id}
-                onClick={() => setSelectedTier(tier)}
+                onClick={() => {
+                  setSelectedTier(tier);
+                  setCalcAmount(tier.capital);
+                }}
                 className={`py-2 px-1 rounded-xl text-center transition-all ${
                   isSelected
                     ? 'bg-[#E5C158]/15 border border-[#D4AF37]/40 text-white'
@@ -627,24 +838,49 @@ export default function WelcomePage({ refCode }) {
         </div>
       </section>
 
-      {/* Yield Calibrator & Gross Profit Section */}
+      {/* Profit Calculator Section */}
       <section className="relative z-10 max-w-md mx-auto px-5 pt-6">
         <div className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-5">
           <div className="flex justify-between items-center mb-1">
             <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#E5C158] font-bold">
-              Realistic Yield Calibrator
+              Profit Calculator
             </p>
-            <span className="text-[11px] font-mono font-bold text-[#E5C158] bg-[#E5C158]/10 border border-[#D4AF37]/30 px-2.5 py-0.5 rounded-lg">
+            <span className="text-[11px] font-mono font-bold text-[#E5C158] bg-[#E5C158]/10 border border-[#D4AF37]/30 px-2.5 py-0.5 rounded-lg tabular-nums">
               {monthlyRate.toFixed(1)}% / Month
             </span>
           </div>
 
           <p className="text-xs text-slate-400 mt-1">
-            Calibrate trajectory to project your compounding capital horizon.
+            Move the sliders to project how your money could grow.
           </p>
 
-          {/* Slider */}
+          {/* Amount slider */}
           <div className="mt-4">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Amount</span>
+              <span className="text-xs font-mono font-bold text-white tabular-nums">₹{fmt(calcAmount)}</span>
+            </div>
+            <input
+              type="range"
+              min={MIN_DEPOSIT}
+              max="100000"
+              step="100"
+              value={calcAmount}
+              onChange={(e) => setCalcAmount(parseInt(e.target.value, 10))}
+              className="w-full accent-[#E5C158] cursor-pointer h-2 bg-[#11161A] rounded-lg appearance-none"
+            />
+            <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1">
+              <span>₹{MIN_DEPOSIT} Min</span>
+              <span className="text-[#E5C158] font-bold">₹1,00,000 Max</span>
+            </div>
+          </div>
+
+          {/* Rate slider */}
+          <div className="mt-4">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Monthly Rate</span>
+              <span className="text-xs font-mono font-bold text-[#E5C158] tabular-nums">{monthlyRate.toFixed(1)}%</span>
+            </div>
             <input
               type="range"
               min="3.5"
@@ -654,10 +890,9 @@ export default function WelcomePage({ refCode }) {
               onChange={(e) => setMonthlyRate(parseFloat(e.target.value))}
               className="w-full accent-[#E5C158] cursor-pointer h-2 bg-[#11161A] rounded-lg appearance-none"
             />
-            <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1.5">
-              <span>3.5% Minimum</span>
-              <span>4.0% Calibrated</span>
-              <span className="text-[#E5C158] font-bold">8.0% Maximum</span>
+            <div className="flex justify-between text-[9px] font-mono text-slate-500 mt-1">
+              <span>3.5% Min</span>
+              <span className="text-[#E5C158] font-bold">8.0% Max</span>
             </div>
           </div>
 
@@ -673,6 +908,7 @@ export default function WelcomePage({ refCode }) {
               <path
                 d={`${pathD} L ${svgWidth} ${svgHeight} L 0 ${svgHeight} Z`}
                 fill="url(#cyberCurveReturning)"
+                className="transition-all duration-300"
               />
               <path
                 d={pathD}
@@ -681,64 +917,65 @@ export default function WelcomePage({ refCode }) {
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 vectorEffect="non-scaling-stroke"
+                className="transition-all duration-300"
               />
             </svg>
             <div className="flex justify-between text-[8px] font-mono text-slate-500 mt-1 border-t border-white/[0.08] pt-1">
-              <span>Base: ₹{fmt(capital)}</span>
-              <span>12M Valuation: ₹{fmt(totalVal12m)}</span>
-              <span className="text-[#E5C158] font-bold">24M Valuation: ₹{fmt(totalVal24m)}</span>
+              <span>Base: ₹{fmt(calcAmount)}</span>
+              <span>12M: ₹{fmt(totalVal12m)}</span>
+              <span className="text-[#E5C158] font-bold">24M: ₹{fmt(totalVal24m)}</span>
             </div>
           </div>
 
-          {/* Clean Accurate Gross Profit Output */}
+          {/* Accurate Net Profit Output */}
           <div className="grid grid-cols-2 gap-2.5 mt-3">
-            <div className="bg-[#0D1114] border border-white/[0.08] rounded-xl p-3">
-              <p className="text-[9px] font-mono uppercase text-slate-400">12-Month Total Value</p>
-              <p className="text-base font-bold font-mono text-white mt-0.5 tabular-nums">₹{fmt(totalVal12m)}</p>
-              <span className="text-[8px] font-mono text-[#E5C158] mt-1 inline-block">
-                +₹{fmt(grossProfit12m)} Gain
+            <div className="bg-[#0D1114] border border-[#D4AF37]/30 rounded-xl p-3">
+              <p className="text-[9px] font-mono uppercase text-[#E5C158] font-bold">Your Net 50% Profit (24M)</p>
+              <p className="text-base font-black font-mono text-[#E5C158] mt-0.5 tabular-nums">+₹{fmt(netProfit24m)}</p>
+              <span className="text-[8px] font-mono text-slate-400 mt-1 inline-block">
+                Gross: ₹{fmt(grossProfit24m)}
               </span>
             </div>
-            <div className="bg-[#0D1114] border border-[#D4AF37]/30 rounded-xl p-3">
-              <p className="text-[9px] font-mono uppercase text-[#E5C158] font-bold">Your Gross Profit (24M)</p>
-              <p className="text-base font-black font-mono text-[#E5C158] mt-0.5 tabular-nums">+₹{fmt(grossProfit24m)}</p>
-              <span className="text-[8px] font-mono text-emerald-400 mt-1 inline-block font-bold">
-                Total Value: ₹{fmt(totalVal24m)}
+            <div className="bg-[#0D1114] border border-white/[0.08] rounded-xl p-3">
+              <p className="text-[9px] font-mono uppercase text-slate-400 font-bold">Fixed Charges</p>
+              <p className="text-base font-black font-mono text-emerald-400 mt-0.5 tabular-nums">₹0</p>
+              <span className="text-[8px] font-mono text-slate-400 mt-1 inline-block">
+                Value in 12M: ₹{fmt(totalVal12m)}
               </span>
             </div>
           </div>
 
           <p className="text-[10px] text-slate-400 italic text-center mt-3 leading-relaxed">
-            "The top 1% never gamble on luck. They construct deterministic yield architectures."
+            "No fixed fees. We only earn when you earn — 50/50 on every profit."
           </p>
         </div>
       </section>
 
-      {/* 2-Tier Network Syndicate Section */}
+      {/* 2-Level Referral Rewards Section */}
       <section className="relative z-10 max-w-md mx-auto px-5 pt-6">
         <div className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-5">
           <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#E5C158] font-bold">
-            Network Velocity Engine
+            Refer &amp; Earn
           </p>
-          <h3 className="text-lg font-black text-white mt-1">Multi-Tier Capital Syndicate</h3>
+          <h3 className="text-lg font-black text-white mt-1">2-Level Referral Rewards</h3>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Accelerate your portfolio without personal capital deposits. Every onboarded invite multiplies your allocation.
+            Invite friends and earn rewards — no investment needed to start earning from referrals.
           </p>
 
           <div className="grid grid-cols-2 gap-2.5 mt-4">
             <div className="bg-[#0D1114] border border-[#D4AF37]/25 rounded-xl p-3 text-center">
               <p className="text-[9px] font-mono text-[#E5C158] uppercase tracking-wider font-semibold">
-                Tier-1 Direct Invite
+                Direct Referral
               </p>
               <p className="text-xl font-black font-mono text-white mt-1 tabular-nums">+₹200</p>
-              <p className="text-[8px] text-slate-400 mt-1">Instant Allocation Credit</p>
+              <p className="text-[8px] text-slate-400 mt-1">When your friend joins</p>
             </div>
             <div className="bg-[#0D1114] border border-[#D4AF37]/25 rounded-xl p-3 text-center">
               <p className="text-[9px] font-mono text-[#E5C158] uppercase tracking-wider font-semibold">
-                Tier-2 Syndicate
+                Level-2 Bonus
               </p>
               <p className="text-xl font-black font-mono text-white mt-1 tabular-nums">+₹100</p>
-              <p className="text-[8px] text-slate-400 mt-1">Autonomous Syndicate Yield</p>
+              <p className="text-[8px] text-slate-400 mt-1">When they activate ₹2,000+</p>
             </div>
           </div>
         </div>
@@ -774,12 +1011,12 @@ export default function WelcomePage({ refCode }) {
 
           <div className="text-center mb-5">
             <h3 className="text-lg font-black text-white uppercase tracking-wide">
-              {isSignInMode ? 'Access Your Terminal' : 'Claim ₹1,000 Welcome Allocation'}
+              {isSignInMode ? 'Sign In to Your Account' : 'Create Your Account'}
             </h3>
             <p className="text-xs text-slate-400 mt-1">
               {isSignInMode
-                ? 'Enter your credentials to access your operator console.'
-                : '₹1,000 welcome capital will be locked and ready in your vault.'}
+                ? 'Enter your email and password to continue.'
+                : `Get ₹${fmt(WELCOME_BONUS)} welcome bonus + start with just ₹${MIN_DEPOSIT}.`}
             </p>
           </div>
 
@@ -793,7 +1030,7 @@ export default function WelcomePage({ refCode }) {
             {!isSignInMode && (
               <div>
                 <label className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block mb-1.5 font-medium">
-                  Full Legal Name / Handle
+                  Full Name
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E5C158]/70 text-sm">👤</span>
@@ -846,7 +1083,7 @@ export default function WelcomePage({ refCode }) {
 
             {!isSignInMode && refCode && (
               <div className="bg-[#E5C158]/10 border border-[#D4AF37]/30 rounded-2xl p-3 text-center text-xs font-mono text-[#E5C158]">
-                Sponsor Connected: <span className="font-bold text-white">{refCode}</span>
+                Referral Connected: <span className="font-bold text-white">{refCode}</span>
               </div>
             )}
 
@@ -859,7 +1096,7 @@ export default function WelcomePage({ refCode }) {
                   className="mt-0.5 accent-[#E5C158] cursor-pointer"
                 />
                 <span className="text-[10px] text-slate-400 leading-relaxed font-sans">
-                  I acknowledge protocol terms, risk disclosure, and mathematical compounding parameters.
+                  I agree to the Terms &amp; 50/50 Profit-Sharing Policy.
                 </span>
               </label>
             )}
@@ -872,18 +1109,18 @@ export default function WelcomePage({ refCode }) {
               {loading
                 ? 'Processing...'
                 : isSignInMode
-                ? 'Sign In to Terminal'
-                : '⚡ Claim ₹1,000 & Create Account'}
+                ? 'Sign In to Your Account'
+                : 'Create Account & Get ₹1,000'}
             </button>
           </form>
 
           <p className="text-[9px] font-mono text-slate-500 text-center mt-3.5 leading-relaxed">
-            Closed-Loop Financial Technology Protocol • Zero External Liability
+            100% Transparent • Zero Fixed Fees • Profit-Only Sharing
           </p>
         </div>
       </section>
 
-      {/* Centered Sticky Bottom Bar */}
+      {/* Sticky Bottom Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-[#0D1114]/95 border-t border-white/[0.08] p-3.5">
         <div className="max-w-md mx-auto flex justify-center">
           <button
@@ -895,7 +1132,7 @@ export default function WelcomePage({ refCode }) {
             }}
             className="w-full max-w-xs bg-gradient-to-r from-[#E5C158] to-[#C9A227] text-black font-black py-3.5 rounded-2xl text-xs uppercase tracking-wider active:scale-95 transition-all text-center"
           >
-            Claim ₹1,000 Allocation Now
+            Get Started — ₹1,000 Bonus
           </button>
         </div>
       </div>
