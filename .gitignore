@@ -24,3 +24,7 @@ yarn-error.log*
 
 .vercel
 .env*
+
+# backups / archives
+*.zip
+project_rules.md
