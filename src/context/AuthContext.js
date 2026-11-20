@@ -3,6 +3,8 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut,
   sendPasswordResetEmail,
 } from 'firebase/auth';
@@ -11,10 +13,6 @@ import {
   setDoc,
   updateDoc,
   onSnapshot,
-  collection,
-  query,
-  where,
-  getDocs,
   runTransaction,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
@@ -38,8 +36,6 @@ export const PROFIT_SPLIT = 0.5; // 50/50 — Net Take-Home Profit / VYOM Ecosys
 
 const SECONDS_IN_MONTH = 30 * 24 * 3600;
 
-// A custom deposit earns the rate of the highest tier band it reaches, so the
-// estimator and the ledger always agree.
 export function rateForAmount(amount) {
   const value = Number(amount) || 0;
   const bands = Object.values(TIER_CONFIG).sort((a, b) => a.capital - b.capital);
@@ -50,16 +46,13 @@ export function rateForAmount(amount) {
   return rate;
 }
 
-// Every earning node in the ledger: fixed tier cards + approved custom deposits.
-// Sorted by activation time so the ₹1,000 welcome bonus always merges into the
-// user's FIRST approved node — deterministic, not dependent on array order.
 function buildLedgerNodes(data) {
   const activationTimestamps = data.cardActivatedAt || {};
   const nodes = [];
 
   (Array.isArray(data.activeCards) ? data.activeCards : []).forEach((cardId) => {
     const config = TIER_CONFIG[cardId];
-    if (!config) return; // ignore unknown ids instead of silently pricing them
+    if (!config) return;
     nodes.push({
       id: cardId,
       type: 'card',
@@ -71,8 +64,6 @@ function buildLedgerNodes(data) {
   });
 
   (Array.isArray(data.customDeposits) ? data.customDeposits : []).forEach((deposit) => {
-    // customDeposits is the admin-only approved ledger: anything stored here has
-    // already passed bank audit, so it carries capital + a frozen rate.
     const capital = Number(deposit.capital || 0);
     if (capital <= 0) return;
     nodes.push({
@@ -80,7 +71,6 @@ function buildLedgerNodes(data) {
       type: 'custom_deposit',
       name: 'Custom Deposit',
       capital,
-      // Frozen at approval time so later rate changes never re-price past accrual.
       monthlyRate: Number(deposit.monthlyRate) || rateForAmount(capital),
       activatedAt: deposit.activatedAt || data.joinDate,
     });
@@ -89,9 +79,6 @@ function buildLedgerNodes(data) {
   return nodes.sort((a, b) => new Date(a.activatedAt) - new Date(b.activatedAt));
 }
 
-// Single source of truth for the deterministic time-based yield math.
-// Used by the live ledger ticker AND by the redemption transaction, so the
-// server-verified profit always matches what the user actually sees.
 function computeLedgerSnapshot(data, nowMs = Date.now()) {
   const nodes = buildLedgerNodes(data);
   const bonusMerged = data.bonusUnlocked ? WELCOME_BONUS : 0;
@@ -101,7 +88,6 @@ function computeLedgerSnapshot(data, nowMs = Date.now()) {
   let monthlyGross = 0;
 
   nodes.forEach((node, index) => {
-    // ₹100 deposited + ₹1,000 bonus = ₹1,100 active Base Amount earning together.
     const nodeCapital = node.capital + (index === 0 ? bonusMerged : 0);
     baseCapital += nodeCapital;
     monthlyGross += nodeCapital * node.monthlyRate;
@@ -138,7 +124,6 @@ export const AuthProvider = ({ children }) => {
   const [authLoading, setAuthLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Live Deterministic Ledger
   const [liveLedger, setLiveLedger] = useState({
     baseCapital: 0,
     grossYield: 0,
@@ -193,11 +178,16 @@ export const AuthProvider = ({ children }) => {
                 date: new Date().toISOString(),
               };
 
+              const resolvedName =
+                pendingSignupName ||
+                fbUser.displayName ||
+                (role === 'admin' ? 'System Administrator' : fbUser.email?.split('@')[0] || 'Syndicate Operator');
+
               const newUserData = {
                 email: fbUser.email,
-                fullName: pendingSignupName || (role === 'admin' ? 'System Administrator' : 'Syndicate Operator'),
+                fullName: resolvedName,
                 role,
-                activeCards: [], // ZERO FREE CARDS
+                activeCards: [],
                 pendingPurchases: [],
                 cardActivatedAt: {},
                 customDeposits: [],
@@ -251,7 +241,6 @@ export const AuthProvider = ({ children }) => {
     };
   }, []);
 
-  // Zero-Cost Timestamp-based Mathematical Yield
   useEffect(() => {
     if (!userData) return;
 
@@ -278,10 +267,6 @@ export const AuthProvider = ({ children }) => {
     return () => clearInterval(interval);
   }, [userData]);
 
-  // Submit Card Purchase Order with 12-Digit Bank UTR (Frictionless, No upfront KYC blocked)
-  // Wrapped in a transaction: the pending queue is read and re-validated against
-  // the LIVE server document inside the same atomic commit, so rapid double-clicks
-  // can never overwrite each other's pendingPurchases entry.
   const submitCardPurchase = async (cardId, bankUtr) => {
     if (!user || !userData) return { error: 'Authentication required' };
 
@@ -355,11 +340,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Submit a Custom Micro-Deposit (₹100 minimum) with 12-Digit Bank UTR.
-  // Sits alongside the fixed card tiers and routes through the same admin
-  // verification queue. The yield rate is resolved here and locked in at
-  // approval time, so a later rate-table change never re-prices past accrual.
-  // Atomic: duplicate-UTR check + queue prepend happen in ONE transaction.
   const submitCustomDeposit = async (amount, bankUtr) => {
     if (!user || !userData) return { error: 'Authentication required' };
 
@@ -433,10 +413,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // 50/50 Profit Redemption Request (2 to 48 Hour SLA)
-  // Atomic: profit eligibility check + pending-payout entry + redeemedGross
-  // baseline bump all happen inside ONE Firestore transaction, so the same
-  // accrued profit can never be redeemed twice (anti double-spend).
   const submitRedemptionRequest = async (grossAmount) => {
     if (!user || !userData) return { error: 'Authentication required' };
     if (!userData.profileCompleted || !userData.upiId) {
@@ -527,6 +503,20 @@ export const AuthProvider = ({ children }) => {
   };
 
   const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
+
+  const loginWithGoogle = async (refCode = null) => {
+    pendingSignupName = null;
+    pendingReferralCode = refCode;
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    try {
+      return await signInWithPopup(auth, provider);
+    } catch (err) {
+      pendingReferralCode = null;
+      throw err;
+    }
+  };
+
   const logout = () => signOut(auth);
   const resetPassword = (email) => sendPasswordResetEmail(auth, email);
 
@@ -556,6 +546,7 @@ export const AuthProvider = ({ children }) => {
         submitRedemptionRequest,
         signup,
         login,
+        loginWithGoogle,
         logout,
         resetPassword,
         updateProfile,

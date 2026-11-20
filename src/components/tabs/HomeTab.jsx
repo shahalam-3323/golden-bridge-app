@@ -126,7 +126,7 @@ export default function HomeTab({ onNavigate }) {
         {/* Base amount */}
         <div className="mt-3 flex items-center justify-between">
           <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-slate-500">
-            Base Amount
+            Active Amount
           </span>
           <span className="text-xs font-mono font-bold text-slate-200">
             ₹{fmt(baseAmount)}
@@ -237,7 +237,7 @@ export default function HomeTab({ onNavigate }) {
         {/* Secondary stats */}
         <div className="grid grid-cols-2 gap-2.5 mt-2.5">
           <div className="bg-[#0D1114] border border-white/[0.08] rounded-xl p-3">
-            <p className="text-[8px] font-mono uppercase text-slate-500">Live Profit Earned</p>
+            <p className="text-[8px] font-mono uppercase text-slate-500">Total Profit Earned</p>
             <p className="text-sm font-black font-mono text-emerald-400 mt-0.5">₹{fmt(grossYield)}</p>
           </div>
           <div className="bg-[#0D1114] border border-white/[0.08] rounded-xl p-3">
