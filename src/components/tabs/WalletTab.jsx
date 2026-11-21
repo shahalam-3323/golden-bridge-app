@@ -40,7 +40,7 @@ export default function WalletTab({ onOpenProfile }) {
     0,
     Number(liveLedger.availableGross != null ? liveLedger.availableGross : accruedGrossProfit - redeemedGross)
   );
-  // Only generated profit is shared; the user's principal is untouched
+  // Only generated profit is shared 50/50 — the user's principal is untouched
   // and there are no fixed platform charges.
   const vyomShare = grossProfit * 0.5;
   const netYouGet = grossProfit * 0.5;
@@ -99,11 +99,18 @@ export default function WalletTab({ onOpenProfile }) {
 
         <div className="mt-3 space-y-2 text-xs">
           <div className="flex justify-between items-center text-slate-300">
-            <span>Total Profit Earned</span>
+            <span>Gross Profit</span>
             <span className="font-mono font-bold text-white">₹{fmt(grossProfit)}</span>
           </div>
+          <div className="flex justify-between items-center text-slate-400">
+            <span>50/50 Profit Split (Zero Fixed Fees)</span>
+            <span className="font-mono">-₹{fmt(vyomShare)}</span>
+          </div>
+          <p className="text-[9px] text-slate-500 leading-relaxed">
+            Sirf generated profit 50/50 share hota hai — aapka principal 100% untouched rehta hai.
+          </p>
           <div className="pt-2 border-t border-white/[0.08] flex justify-between items-center">
-            <span className="text-[11px] font-bold text-slate-200">Your Net Share</span>
+            <span className="text-[11px] font-bold text-slate-200">Net You Get</span>
             <span className="text-lg font-black font-mono text-emerald-400">₹{fmt(netYouGet)}</span>
           </div>
         </div>
@@ -314,7 +321,7 @@ export default function WalletTab({ onOpenProfile }) {
                   Payout Request Submitted
                 </h4>
                 <p className="text-xs text-[#E5C158] font-bold">
-                  Your Net Share: ₹{fmt(redeemSuccess.netPayout)}
+                  Net Payout: ₹{fmt(redeemSuccess.netPayout)}
                 </p>
                 <div className="bg-[#0D1114] border border-white/[0.08] rounded-xl p-3 text-[10px] text-slate-400 leading-relaxed text-left">
                   <p>• Payout ID: <strong className="text-white">#{redeemSuccess.requestId}</strong></p>
@@ -335,7 +342,7 @@ export default function WalletTab({ onOpenProfile }) {
               <div className="mt-4 space-y-3 font-mono">
                 <div className="bg-[#0D1114] border border-white/[0.08] rounded-2xl p-4 space-y-2 text-xs">
                   <div className="flex justify-between items-center text-slate-300">
-                    <span>Total Profit Earned:</span>
+                    <span>Gross Profit:</span>
                     <span className="font-bold text-white">₹{fmt(grossProfit)}</span>
                   </div>
                   <div className="flex justify-between items-center text-slate-400">
@@ -343,7 +350,7 @@ export default function WalletTab({ onOpenProfile }) {
                     <span>-₹{fmt(vyomShare)}</span>
                   </div>
                   <div className="pt-2 border-t border-white/[0.08] flex justify-between items-center text-sm font-black text-slate-200">
-                    <span>Your Net Share:</span>
+                    <span>Net You Get:</span>
                     <span className="text-emerald-400">₹{fmt(netYouGet)}</span>
                   </div>
                 </div>
