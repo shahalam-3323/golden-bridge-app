@@ -178,7 +178,7 @@ export default function CardsTab() {
         <p className="text-[9px] font-mono text-slate-500 mt-2">
           Locked rate for ₹{fmtInt(depositAmount || 0)}:{' '}
           <span className="text-emerald-400 font-bold">
-            {(rateForAmount(depositAmount || 0) * 100).toFixed(1)}% / month gross
+            {(rateForAmount(depositAmount || 0) * 100).toFixed(1)}% / month
           </span>
           {pendingDeposit && <span className="text-amber-400"> • A deposit is already in review</span>}
         </p>
@@ -226,14 +226,14 @@ export default function CardsTab() {
 
         <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/[0.08]">
           <div>
-            <p className="text-[8px] font-mono uppercase tracking-wider text-slate-500">Gross Yield</p>
+            <p className="text-[8px] font-mono uppercase tracking-wider text-slate-500">Total Profit Earned</p>
             <p className="text-[11px] font-mono font-bold text-white mt-0.5">₹{fmt(estGross)}</p>
             <p className="text-[8px] font-mono text-emerald-400">{(estRate * 100).toFixed(1)}% / mo</p>
           </div>
           <div className="border-x border-white/[0.08] px-2">
-            <p className="text-[8px] font-mono uppercase tracking-wider text-slate-500">Net 50% Take-Home</p>
+            <p className="text-[8px] font-mono uppercase tracking-wider text-slate-500">Your Net Share</p>
             <p className="text-[11px] font-mono font-bold text-emerald-400 mt-0.5">₹{fmt(estNet)}</p>
-            <p className="text-[8px] font-mono text-slate-500">50/50 split</p>
+            <p className="text-[8px] font-mono text-slate-500">Estimated amount</p>
           </div>
           <div className="text-right">
             <p className="text-[8px] font-mono uppercase tracking-wider text-slate-500">Fixed Charges</p>
@@ -262,7 +262,7 @@ export default function CardsTab() {
           </div>
           <div className="text-right">
             <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-slate-400 font-bold">
-              Est. Gross Yield
+              Est. Total Profit Earned
             </p>
             <p className="text-sm font-black font-mono text-emerald-400 mt-1">
               ₹{fmt(estimatedMonthlyYield)}
@@ -297,7 +297,7 @@ export default function CardsTab() {
               <div className="mt-3 flex items-end justify-between">
                 <div>
                   <p className="text-[8px] font-mono uppercase tracking-widest text-white/50">
-                    Capital Base
+                    Card Plan
                   </p>
                   <p className="text-2xl font-black font-mono text-white tracking-tight">
                     ₹{fmt(tier.capital)}
@@ -305,7 +305,7 @@ export default function CardsTab() {
                 </div>
                 <div className="text-right">
                   <p className="text-[8px] font-mono uppercase tracking-widest text-white/50">
-                    Gross Yield
+                    Total Profit Earned
                   </p>
                   <p className="text-lg font-black font-mono text-[#E5C158]">{ratePct}%</p>
                   <p className="text-[8px] font-mono text-white/50">per month</p>
@@ -389,7 +389,7 @@ export default function CardsTab() {
                     • Status: <strong className="text-amber-400">Verifying • 5–30 mins</strong>
                   </p>
                   <p className="pt-1 text-slate-500 text-[9px]">
-                    Your {checkout.mode === 'deposit' ? 'deposit node' : 'card'} activates automatically
+                    Your {checkout.mode === 'deposit' ? 'deposit' : 'card'} activates automatically
                     once the payment is verified.
                   </p>
                 </div>
@@ -404,7 +404,7 @@ export default function CardsTab() {
               <form onSubmit={handleCheckoutSubmit} className="mt-4 space-y-3 font-mono">
                 <div className="bg-[#0D1114] border border-white/[0.08] rounded-2xl p-3.5 text-xs">
                   <div className="flex justify-between items-center text-slate-300">
-                    <span>{checkout.mode === 'deposit' ? 'Deposit Type:' : 'Card Tier:'}</span>
+                    <span>{checkout.mode === 'deposit' ? 'Deposit Type:' : 'Card Plan:'}</span>
                     <span className="font-bold text-white">{checkout.title}</span>
                   </div>
                   <div className="flex justify-between items-center text-slate-300 mt-1">
@@ -412,7 +412,7 @@ export default function CardsTab() {
                     <span className="text-base font-black text-[#E5C158]">₹{fmt(checkout.amount)}</span>
                   </div>
                   <div className="flex justify-between items-center text-slate-300 mt-1">
-                    <span>Locked Gross Yield:</span>
+                    <span>Monthly Rate:</span>
                     <span className="text-emerald-400 font-bold">
                       {(rateForAmount(checkout.amount) * 100).toFixed(1)}% / month
                     </span>
@@ -431,15 +431,15 @@ export default function CardsTab() {
 
                   <div className="w-36 h-36 mx-auto bg-white rounded-xl p-2 flex items-center justify-center">
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=vyomnetwork@icici&pn=VYOM%20Network&am=${checkout.amount}&cu=INR`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=upi://pay?pa=vyom.sandbox@mockupi&pn=VYOM%20Sandbox&am=${checkout.amount}&cu=INR`}
                       alt="UPI QR Code"
                       className="w-full h-full object-contain"
                     />
                   </div>
 
-                  <p className="text-xs text-white font-mono font-bold mt-1">vyomnetwork@icici</p>
+                  <p className="text-xs text-white font-mono font-bold mt-1">vyom.sandbox@mockupi</p>
                   <p className="text-[8px] text-slate-400">
-                    Scan with GPay, PhonePe, Paytm or any UPI app
+                    Payee: VYOM Sandbox
                   </p>
                 </div>
 

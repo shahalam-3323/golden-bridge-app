@@ -1,18 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
-import { rateForAmount } from './context/AuthContext';
 import { signOut } from 'firebase/auth';
 import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
 
+/**
+ * Resolves monthly return rate locally based on capital amount
+ * when AuthContext does not export rateForAmount.
+ */
+const rateForAmount = (amount = 0) => {
+  try {
+    const num = Number(amount) || 0;
+    if (num >= 100000) return 0.08;
+    if (num >= 50000) return 0.07;
+    if (num >= 10000) return 0.055;
+    if (num >= 5000) return 0.045;
+    if (num >= 2000) return 0.035;
+    return 0.035;
+  } catch {
+    return 0.035;
+  }
+};
+
+/**
+ * Formats numbers into Indian rupee currency format with two decimal places.
+ */
 const fmt = (n) =>
   Number(n || 0).toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 
+/**
+ * Master settlement and capital node audit console for administrators.
+ */
 export default function AdminPanel() {
   const [users, setUsers] = useState([]);
-  const [activeTab, setActiveTab] = useState('orders'); // Default to Card Purchases!
+  const [activeTab, setActiveTab] = useState('orders'); // Default to Card Purchases & Deposits
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [bankUtr, setBankUtr] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
@@ -22,12 +45,17 @@ export default function AdminPanel() {
     fetchUsers();
   }, []);
 
+  // Fetches all operator documents from Firestore users collection
   const fetchUsers = async () => {
-    const uSnap = await getDocs(collection(db, 'users'));
-    setUsers(uSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    try {
+      const uSnap = await getDocs(collection(db, 'users'));
+      setUsers(uSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      setActionError(err?.message || 'Failed to load users from Firestore.');
+    }
   };
 
-  // 1. ALL PENDING CARD PURCHASES
+  // 1. ALL PENDING CARD PURCHASES & CUSTOM DEPOSITS
   const allCardOrders = users
     .filter((u) => u.role !== 'admin')
     .flatMap((u) =>
@@ -86,22 +114,14 @@ export default function AdminPanel() {
       const shouldUnlockBonus = !user.bonusUnlocked;
       const existingDeposits = user.customDeposits || [];
 
-      // ── REFERRAL QUALIFICATION GUARD ──
-      // Upline payouts (L1 ₹200 / L2 ₹100) only fire when the referred operator
-      // genuinely commits capital: ANY fixed-tier card purchase, or a custom
-      // deposit/order of at least ₹2,000. A ₹100 micro-deposit still unlocks the
-      // user's own ₹1,000 Welcome Bonus, but never pays the upline.
-      // `referralRewarded` is a one-shot latch so the payout happens exactly once
-      // — on whichever qualifying order lands first.
+      // Upline referral payouts trigger once when the referred user meets qualification criteria
       const orderAmount = Number(order.amount) || 0;
       const qualifiesForReferral = !isDeposit || orderAmount >= 2000;
       const shouldRewardReferral =
         qualifiesForReferral && !user.referralRewarded && Boolean(user.referredBy);
       const referralRewarded = shouldRewardReferral || Boolean(user.referralRewarded);
 
-      // Fixed tier card → append the tier id (idempotent).
-      // Custom deposit → append its own ledger node carrying capital + the rate
-      // that was locked in at submission. Both node types earn side by side.
+      // Append tier card or custom deposit ledger node
       const activeList = user.activeCards || [];
       const updatedCards = isDeposit
         ? activeList
@@ -124,9 +144,7 @@ export default function AdminPanel() {
             ]
         : existingDeposits;
 
-      // The ₹1,000 Welcome Bonus merges into the user's FIRST activated node,
-      // which the ledger resolves by activation time — so a deposit-only user
-      // gets ₹100 + ₹1,000 = ₹1,100 base without needing a card timestamp.
+      // Record activation timestamp for tier cards
       const updatedTimestamps = isDeposit
         ? { ...(user.cardActivatedAt || {}) }
         : { ...(user.cardActivatedAt || {}), [order.cardId]: now };
@@ -135,7 +153,7 @@ export default function AdminPanel() {
         ? {
             type: 'Custom Deposit Activated by Bank Audit',
             detail: `Verified micro-deposit of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Base Amount node activated at ${(
-              ((Number(order.lockedRate) || rateForAmount(order.amount)) * 100)
+              (Number(order.lockedRate) || rateForAmount(order.amount)) * 100
             ).toFixed(1)}%/month. ${
               shouldUnlockBonus ? '₹1,000 Welcome Base Amount unlocked and merged.' : ''
             }`,
@@ -153,7 +171,6 @@ export default function AdminPanel() {
             date: now,
           };
 
-      // Atomic Update User Document
       await updateDoc(doc(db, 'users', order.userId), {
         activeCards: updatedCards,
         customDeposits: updatedDeposits,
@@ -164,9 +181,8 @@ export default function AdminPanel() {
         history: [logEntry, ...(user.history || [])],
       });
 
-      // Trigger the 2-Level Multiplier once the referred operator first qualifies.
+      // Trigger Level 1 (+200) and Level 2 (+100) referral rewards once
       if (shouldRewardReferral) {
-        // Trigger Level 1 (+200) and Level 2 (+100) rewards
         try {
           const usersRef = collection(db, 'users');
           const q1 = query(usersRef, where('referralCode', '==', user.referredBy.trim()));
@@ -217,9 +233,9 @@ export default function AdminPanel() {
         }
       }
 
-      fetchUsers();
+      await fetchUsers();
     } catch (err) {
-      setActionError(err.message);
+      setActionError(err?.message || 'Failed to approve order.');
     } finally {
       setActionLoading(false);
     }
@@ -228,6 +244,8 @@ export default function AdminPanel() {
   // ─── ACTION B: REJECT CARD ORDER ───
   const handleRejectOrder = async (order) => {
     setActionLoading(true);
+    setActionError('');
+
     try {
       const user = users.find((u) => u.id === order.userId);
       if (!user) return;
@@ -254,9 +272,9 @@ export default function AdminPanel() {
         history: [logEntry, ...(user.history || [])],
       });
 
-      fetchUsers();
+      await fetchUsers();
     } catch (err) {
-      setActionError(err.message);
+      setActionError(err?.message || 'Failed to reject order.');
     } finally {
       setActionLoading(false);
     }
@@ -301,11 +319,20 @@ export default function AdminPanel() {
 
       setSelectedRequest(null);
       setBankUtr('');
-      fetchUsers();
+      await fetchUsers();
     } catch (err) {
-      setActionError(err.message);
+      setActionError(err?.message || 'Failed to approve redemption.');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // Signs administrator out of Firebase Auth with safe error reporting
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      setActionError(err?.message || 'Failed to log out.');
     }
   };
 
@@ -318,10 +345,13 @@ export default function AdminPanel() {
             <h1 className="text-xl font-black text-[#E5C158] uppercase tracking-wider">
               VYOM Protocol Audit Console
             </h1>
-            <p className="text-[10px] text-slate-400 mt-0.5">Master Settlement & Capital Node Oversight</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              Master Settlement &amp; Capital Node Oversight
+            </p>
           </div>
           <button
-            onClick={() => signOut(auth)}
+            type="button"
+            onClick={handleLogout}
             className="bg-red-500/10 border border-red-500/30 text-red-400 text-xs px-4 py-2 rounded-xl hover:bg-red-500/20"
           >
             Logout
@@ -331,25 +361,34 @@ export default function AdminPanel() {
         {/* 3 Tabs: Orders | Redeems | Users */}
         <div className="flex gap-2 bg-[#11161A] p-1.5 rounded-2xl border border-white/[0.08]">
           <button
+            type="button"
             onClick={() => setActiveTab('orders')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'orders' ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40' : 'text-slate-400'
+              activeTab === 'orders'
+                ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40'
+                : 'text-slate-400'
             }`}
           >
-            Orders & Deposits ({pendingOrders.length})
+            Orders &amp; Deposits ({pendingOrders.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('redeems')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'redeems' ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40' : 'text-slate-400'
+              activeTab === 'redeems'
+                ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40'
+                : 'text-slate-400'
             }`}
           >
             Pending Redemptions ({pendingRedeems.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('users')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'users' ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40' : 'text-slate-400'
+              activeTab === 'users'
+                ? 'bg-[#E5C158]/15 text-[#E5C158] border border-[#D4AF37]/40'
+                : 'text-slate-400'
             }`}
           >
             Registered Operators ({users.filter((u) => u.role !== 'admin').length})
@@ -371,20 +410,26 @@ export default function AdminPanel() {
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold text-white">{order.userName || order.userFullName}</p>
+                      <p className="text-sm font-bold text-white">
+                        {order.userName || order.userFullName}
+                      </p>
                       <span className="text-[9px] text-[#E5C158]/70">#{order.orderId}</span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">{order.userEmail} • +91 {order.userPhone}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {order.userEmail} • +91 {order.userPhone}
+                    </p>
                     <p className="text-sm text-[#E5C158] font-bold mt-2 tabular-nums">
                       {order.type === 'custom_deposit'
-                        ? `Custom Deposit: ₹${fmt(order.amount)} • Locked ${
-                            ((Number(order.lockedRate) || rateForAmount(order.amount)) * 100).toFixed(1)
-                          }%/month`
+                        ? `Custom Deposit: ₹${fmt(order.amount)} • Locked ${(
+                            (Number(order.lockedRate) || rateForAmount(order.amount)) * 100
+                          ).toFixed(1)}%/month`
                         : `Card: ${order.cardName} • Capital: ₹${fmt(order.amount)}`}
                     </p>
                     <div className="mt-1 bg-[#090C0E] border border-white/[0.08] p-2 rounded-xl inline-block">
                       <p className="text-[10px] text-slate-400">User-Submitted Bank UTR:</p>
-                      <p className="text-xs font-black text-emerald-400 tracking-wider">{order.bankUtr}</p>
+                      <p className="text-xs font-black text-emerald-400 tracking-wider">
+                        {order.bankUtr}
+                      </p>
                     </div>
                     <p className="text-[9px] text-slate-500 mt-1">
                       Submitted: {new Date(order.requestedAt).toLocaleString('en-IN')}
@@ -393,6 +438,7 @@ export default function AdminPanel() {
 
                   <div className="flex flex-col gap-2">
                     <button
+                      type="button"
                       onClick={() => handleApproveOrder(order)}
                       disabled={actionLoading}
                       className="bg-emerald-600 hover:bg-emerald-500 text-black font-bold px-4 py-2 rounded-xl text-xs uppercase"
@@ -400,6 +446,7 @@ export default function AdminPanel() {
                       {actionLoading ? 'Activating...' : 'Approve & Activate'}
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleRejectOrder(order)}
                       disabled={actionLoading}
                       className="bg-red-600/20 border border-red-500/30 hover:bg-red-500/30 text-red-400 font-bold px-4 py-1.5 rounded-xl text-xs uppercase"
@@ -428,7 +475,9 @@ export default function AdminPanel() {
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-bold text-white">{req.userName || req.userFullName}</p>
+                      <p className="text-sm font-bold text-white">
+                        {req.userName || req.userFullName}
+                      </p>
                       <span className="text-[9px] text-[#E5C158]/70">#{req.id}</span>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">{req.userEmail}</p>
@@ -439,11 +488,13 @@ export default function AdminPanel() {
                       UPI ID: {req.destinationUpi || req.userUpiId || 'Not Configured'}
                     </p>
                     <p className="text-[9px] text-slate-500 mt-1">
-                      Phone: +91 {req.userPhone || 'N/A'} • {new Date(req.requestedAt).toLocaleString('en-IN')}
+                      Phone: +91 {req.userPhone || 'N/A'} •{' '}
+                      {new Date(req.requestedAt).toLocaleString('en-IN')}
                     </p>
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => {
                       setSelectedRequest(req);
                       setBankUtr('');
@@ -451,7 +502,7 @@ export default function AdminPanel() {
                     }}
                     className="bg-[#E5C158]/15 border border-[#D4AF37]/40 text-[#E5C158] px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#E5C158]/25"
                   >
-                    Audit & Settle
+                    Audit &amp; Settle
                   </button>
                 </div>
               ))
@@ -465,13 +516,17 @@ export default function AdminPanel() {
             {users
               .filter((u) => u.role !== 'admin')
               .map((u) => (
-                <div key={u.id} className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4">
+                <div
+                  key={u.id}
+                  className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4"
+                >
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-bold text-white">{u.fullName || 'Operator'}</p>
                       <p className="text-xs text-slate-400">{u.email}</p>
                       <p className="text-[10px] text-[#E5C158]/80 mt-1">
-                        Active Cards: {(u.activeCards || []).join(', ') || 'None'} • UPI: {u.upiId || 'Incomplete'}
+                        Active Cards: {(u.activeCards || []).join(', ') || 'None'} • UPI:{' '}
+                        {u.upiId || 'Incomplete'}
                       </p>
                     </div>
                     <span
@@ -494,8 +549,11 @@ export default function AdminPanel() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
             <div className="w-full max-w-md bg-[#11161A] border border-[#D4AF37]/30 rounded-3xl p-6 text-slate-200">
               <div className="flex justify-between items-center pb-3 border-b border-white/[0.08]">
-                <h3 className="text-sm font-bold text-white uppercase">Redemption Settlement Audit</h3>
+                <h3 className="text-sm font-bold text-white uppercase">
+                  Redemption Settlement Audit
+                </h3>
                 <button
+                  type="button"
                   onClick={() => setSelectedRequest(null)}
                   className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-slate-400"
                 >
@@ -504,9 +562,18 @@ export default function AdminPanel() {
               </div>
 
               <div className="mt-4 space-y-2 text-xs">
-                <p>Operator: <strong className="text-white">{selectedRequest.userName}</strong></p>
-                <p>Unmasked UPI ID: <strong className="text-[#E5C158] text-sm font-mono">{selectedRequest.destinationUpi || selectedRequest.userUpiId}</strong></p>
-                <p>Phone Number: <strong className="text-slate-200">+91 {selectedRequest.userPhone}</strong></p>
+                <p>
+                  Operator: <strong className="text-white">{selectedRequest.userName}</strong>
+                </p>
+                <p>
+                  Unmasked UPI ID:{' '}
+                  <strong className="text-[#E5C158] text-sm font-mono">
+                    {selectedRequest.destinationUpi || selectedRequest.userUpiId}
+                  </strong>
+                </p>
+                <p>
+                  Phone Number: <strong className="text-slate-200">+91 {selectedRequest.userPhone}</strong>
+                </p>
                 <div className="bg-[#090C0E] p-3 rounded-xl border border-white/[0.08] text-sm">
                   <p className="text-slate-400 text-xs">Net Amount to Transfer via UPI:</p>
                   <p className="text-2xl font-black text-emerald-400 font-mono mt-1 tabular-nums">
@@ -526,7 +593,7 @@ export default function AdminPanel() {
                     className="w-full bg-[#090C0E] border border-white/[0.12] rounded-xl p-3 text-xs text-white focus:border-[#E5C158] outline-none tabular-nums"
                   />
                   <p className="text-[8px] text-slate-500 mt-1">
-                    *This UTR will be permanently logged into the operator's digital ledger passbook.
+                    *This UTR will be permanently logged into the operator&apos;s digital ledger passbook.
                   </p>
                 </div>
 
@@ -538,6 +605,7 @@ export default function AdminPanel() {
 
                 <div className="flex gap-2 pt-4">
                   <button
+                    type="button"
                     onClick={() => handleApproveRedeem(selectedRequest)}
                     disabled={actionLoading}
                     className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-3 rounded-xl text-xs uppercase"
@@ -545,6 +613,7 @@ export default function AdminPanel() {
                     {actionLoading ? 'Saving...' : 'Approve & Mark Settled'}
                   </button>
                   <button
+                    type="button"
                     onClick={() => setSelectedRequest(null)}
                     disabled={actionLoading}
                     className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl text-xs uppercase"
