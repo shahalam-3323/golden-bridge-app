@@ -1,246 +1,1367 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, Info, ArrowLeft, LogOut } from 'lucide-react';
+import {
+  Bell,
+  Copy,
+  Check,
+  X,
+  Wallet,
+  CreditCard,
+  Users,
+  History,
+  UserCheck,
+  ShieldCheck,
+  LogOut,
+  ArrowUpRight,
+  CheckCircle2,
+  Send,
+  Sparkles,
+  AlertCircle,
+} from 'lucide-react';
 
-// Default tier fallback if authContext does not provide TIER_CONFIG
-const DEFAULT_TIERS = {
-  starter: { label: 'Starter', capital: 2000, rate: 0.035 },
-  growth: { label: 'Growth', capital: 5000, rate: 0.045 },
-  elite: { label: 'Elite', capital: 10000, rate: 0.055 },
-  prime: { label: 'Prime', capital: 50000, rate: 0.07 },
-  signature: { label: 'Signature', capital: 100000, rate: 0.08 },
+const DEFAULT_TIERS = [
+  {
+    id: 'starter',
+    badge: 'TIER I',
+    name: 'Starter',
+    capital: 2000,
+    rate: 0.035,
+    gradient: 'from-[#062C2B] via-[#071D1E] to-[#080C0E]',
+    border: 'border-emerald-400/50',
+    accent: '#34D399',
+    note: 'Entry capital card • Easy to start',
+  },
+  {
+    id: 'growth',
+    badge: 'TIER II',
+    name: 'Growth',
+    capital: 5000,
+    rate: 0.045,
+    gradient: 'from-[#1E293B] via-[#131924] to-[#0A0D12]',
+    border: 'border-slate-400/50',
+    accent: '#E2E8F0',
+    note: 'Balanced card for steady monthly growth',
+  },
+  {
+    id: 'elite',
+    badge: 'TIER III',
+    name: 'Elite',
+    capital: 10000,
+    rate: 0.055,
+    gradient: 'from-[#1F2429] via-[#13161A] to-[#090A0C]',
+    border: 'border-zinc-400/50',
+    accent: '#F4F4F5',
+    note: 'Higher monthly growth card',
+  },
+  {
+    id: 'prime',
+    badge: 'TIER IV',
+    name: 'Prime',
+    capital: 50000,
+    rate: 0.07,
+    gradient: 'from-[#29220A] via-[#171409] to-[#0B0B08]',
+    border: 'border-amber-400/55',
+    accent: '#FCD34D',
+    note: 'High-capital card with priority payouts',
+  },
+  {
+    id: 'signature',
+    badge: 'TIER V',
+    name: 'Signature',
+    capital: 100000,
+    rate: 0.08,
+    gradient: 'from-[#2A200B] via-[#171208] to-[#0B0A08]',
+    border: 'border-[#F0A818]/75',
+    accent: '#F0A818',
+    note: 'Top Obsidian Gold card • Highest monthly rate',
+  },
+];
+
+const formatINR = (val, decimals = 2) => {
+  const num = Number(val) || 0;
+  return `₹${num.toLocaleString('en-IN', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
 };
 
-// Formats rupee values cleanly for compact UI readouts
-const formatRupee = (val) => {
-  try {
-    return `₹${Number(val || 0).toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  } catch {
-    return '₹0.00';
-  }
-};
-
-// Simple, no-scroll HomePage with per-second fluctuating numbers and separate Info/Help view
-export default function HomePage({ authContext }) {
+export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw }) {
   const auth = authContext || {};
-  const { user, userProfile, logout, TIER_CONFIG = DEFAULT_TIERS } = auth;
+  const {
+    user,
+    userData,
+    userProfile,
+    logout,
+    submitCardOrder,
+    requestWithdrawal,
+    TIER_CONFIG,
+    PROFIT_SPLIT = 0.5,
+  } = auth;
 
-  const [view, setView] = useState('main'); // 'main' | 'info'
-  const [pulseTick, setPulseTick] = useState(0);
+  const activeProfile = userProfile || userData || null;
 
-  // Per-second live fluctuation tick (replaces chart simulator)
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedCardId, setSelectedCardId] = useState('starter');
+  const [ledgerFilter, setLedgerFilter] = useState('all');
+
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isRulesOpen, setIsRulesOpen] = useState(false);
+  const [isLedgerOpen, setIsLedgerOpen] = useState(false);
+  const [policyTab, setPolicyTab] = useState('terms');
+
+  // Card Purchase Modal State
+  const [isCardModalOpen, setIsCardModalOpen] = useState(false);
+  const [cardModalTier, setCardModalTier] = useState(DEFAULT_TIERS[0]);
+  const [utrInput, setUtrInput] = useState('');
+  const [cardOrderLoading, setCardOrderLoading] = useState(false);
+  const [cardOrderError, setCardOrderError] = useState('');
+
+  // UPI Withdrawal Modal State
+  const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawUpi, setWithdrawUpi] = useState('');
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [withdrawError, setWithdrawError] = useState('');
+
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const [tick, setTick] = useState(0);
+  const [tgUser, setTgUser] = useState(null);
+
   useEffect(() => {
-    const timer = setInterval(() => {
-      setPulseTick((prev) => (prev + 1) % 100000);
-    }, 1000);
-    return () => clearInterval(timer);
+    try {
+      const tg = typeof window !== 'undefined' ? window.Telegram?.WebApp : null;
+      if (!tg) return;
+      tg.ready?.();
+      tg.expand?.();
+      tg.setHeaderColor?.('#090D0C');
+      tg.setBackgroundColor?.('#090D0C');
+      if (tg.initDataUnsafe?.user) {
+        setTgUser(tg.initDataUnsafe.user);
+      }
+    } catch {
+      // Safe fallback when opened in standard browser
+    }
   }, []);
 
-  const displayName =
-    userProfile?.fullName ||
-    user?.displayName ||
-    (user?.email ? user.email.split('@')[0] : 'Member');
-
-  const baseCapital = useMemo(() => {
-    try {
-      const direct = Number(
-        userProfile?.activeCapital ?? userProfile?.capital ?? userProfile?.investedAmount ?? 0
-      );
-      if (direct > 0) return direct;
-
-      const cardList = Array.isArray(userProfile?.activeCards) ? userProfile.activeCards : [];
-      const cardSum = cardList.reduce((acc, id) => {
-        const tier = TIER_CONFIG?.[id];
-        return acc + (Number(tier?.capital) || 0);
-      }, 0);
-
-      const depList = Array.isArray(userProfile?.customDeposits) ? userProfile.customDeposits : [];
-      const depSum = depList.reduce((acc, d) => acc + (Number(d?.capital) || 0), 0);
-
-      const total = cardSum + depSum;
-      return total > 0 ? total : Number(TIER_CONFIG?.starter?.capital) || 2000;
-    } catch {
-      return 2000;
+  useEffect(() => {
+    if (activeProfile?.upiId && !withdrawUpi) {
+      setWithdrawUpi(activeProfile.upiId);
     }
-  }, [userProfile, TIER_CONFIG]);
+  }, [activeProfile?.upiId, withdrawUpi]);
 
-  const monthlyRate = useMemo(() => {
+  const triggerHaptic = (style = 'light') => {
     try {
-      const explicit = String(userProfile?.activeTier || '').toLowerCase();
-      if (explicit && TIER_CONFIG?.[explicit]?.rate) {
-        return Number(TIER_CONFIG[explicit].rate);
-      }
-      return Number(TIER_CONFIG?.starter?.rate) || 0.035;
+      window.Telegram?.WebApp?.HapticFeedback?.impactOccurred?.(style);
     } catch {
-      return 0.035;
-    }
-  }, [userProfile?.activeTier, TIER_CONFIG]);
-
-  // Per-second fluctuating indicative figures (smooth wave around indicative yield)
-  const liveStats = useMemo(() => {
-    try {
-      const baseMonthlyGain = baseCapital * monthlyRate;
-      const baseDailyIndicative = baseMonthlyGain / 30;
-      const waveA = Math.sin(pulseTick * 0.85) * 0.018;
-      const waveB = Math.cos(pulseTick * 0.55) * 0.012;
-
-      const fluctuatingIndex = baseCapital + baseDailyIndicative * (1 + waveA);
-      const fluctuatingDelta = baseDailyIndicative * (1 + waveB);
-      const fluctuatingPct = (monthlyRate * 100 + waveA * 1.4).toFixed(2);
-
-      return {
-        liveValue: Math.max(0, fluctuatingIndex),
-        liveDelta: fluctuatingDelta,
-        livePct: fluctuatingPct,
-      };
-    } catch {
-      return {
-        liveValue: baseCapital,
-        liveDelta: 0,
-        livePct: '3.50',
-      };
-    }
-  }, [baseCapital, monthlyRate, pulseTick]);
-
-  // Signs user out safely
-  const handleLogout = async () => {
-    if (typeof logout !== 'function') return;
-    try {
-      await logout();
-    } catch {
-      // Ignore logout failure in simple view
+      // Ignore outside Telegram
     }
   };
 
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 2200);
+    return () => clearInterval(timer);
+  }, []);
+
+  const tiers = useMemo(() => {
+    return DEFAULT_TIERS.map((t) => {
+      const override = TIER_CONFIG?.[t.id];
+      return override
+        ? {
+            ...t,
+            capital: Number(override.capital) || t.capital,
+            rate: Number(override.monthlyRate) || t.rate,
+          }
+        : t;
+    });
+  }, [TIER_CONFIG]);
+
+  const displayName =
+    activeProfile?.fullName ||
+    activeProfile?.name ||
+    (tgUser ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') : '') ||
+    user?.displayName ||
+    (user?.email ? user.email.split('@')[0] : 'Member');
+
+  const userIdentityLine = tgUser?.username
+    ? `@${tgUser.username}`
+    : tgUser?.id
+      ? `ID: ${tgUser.id}`
+      : activeProfile?.userIdNumber
+        ? `ID: ${activeProfile.userIdNumber}`
+        : user?.uid
+          ? `ID: ${user.uid.slice(0, 8).toUpperCase()}`
+          : user?.email || 'Verified Member';
+
+  const handleTag = tgUser?.username
+    ? `@${tgUser.username}`
+    : user?.email || userIdentityLine;
+
+  const userSplitPct = Math.round((Number(PROFIT_SPLIT) || 0.5) * 100);
+  const platformSplitPct = 100 - userSplitPct;
+
+  const ownedCardIds = useMemo(() => {
+    return Array.isArray(activeProfile?.activeCards) ? activeProfile.activeCards : [];
+  }, [activeProfile?.activeCards]);
+
+  const pendingCardOrdersCount = useMemo(() => {
+    const list = Array.isArray(activeProfile?.pendingPurchases)
+      ? activeProfile.pendingPurchases
+      : [];
+    return list.filter((p) => p.status === 'pending').length;
+  }, [activeProfile?.pendingPurchases]);
+
+  const totalOwnedCards = ownedCardIds.length;
+
+  const baseCapital = useMemo(() => {
+    const direct = Number(
+      activeProfile?.activeCapital ?? activeProfile?.capital ?? activeProfile?.investedAmount ?? 0
+    );
+    if (direct > 0) return direct;
+
+    return ownedCardIds.reduce((sum, id) => {
+      const found = tiers.find((t) => t.id === id);
+      return sum + (found ? found.capital : 0);
+    }, 0);
+  }, [activeProfile, tiers, ownedCardIds]);
+
+  const activeTier = useMemo(() => {
+    const explicit = String(activeProfile?.activeTier || '').toLowerCase();
+    const byName = tiers.find((t) => t.id === explicit);
+    if (byName) return byName;
+
+    let current = tiers[0];
+    for (const t of tiers) {
+      if (baseCapital >= t.capital) current = t;
+    }
+    return current;
+  }, [activeProfile?.activeTier, tiers, baseCapital]);
+
+  // Strictly 0 when user has no active card
+  const effectiveBase = baseCapital;
+  const totalProfit = Number(
+    activeProfile?.totalProfit ?? activeProfile?.yieldEarned ?? activeProfile?.availableFund ?? 0
+  );
+  const withdrawableBalance = Number(
+    activeProfile?.withdrawableBalance ?? activeProfile?.availableFund ?? totalProfit
+  );
+
+  const liveMetrics = useMemo(() => {
+    if (effectiveBase <= 0 && totalProfit <= 0) {
+      return {
+        liveTotal: 0,
+        liveDelta: 0,
+        liveRatePct: (activeTier.rate * 100).toFixed(2),
+      };
+    }
+
+    const monthlyGain = effectiveBase * activeTier.rate;
+    const secondDrift = (monthlyGain / (30 * 86400)) * tick;
+    const waveA = Math.sin(tick * 0.9) * (effectiveBase * 0.00014);
+    const waveB = Math.cos(tick * 0.65) * 0.03;
+
+    const liveTotal = Math.max(0, effectiveBase + totalProfit + secondDrift + waveA);
+    const liveDelta = Math.max(0, monthlyGain / 30 + waveA * 0.35);
+    const liveRatePct = (activeTier.rate * 100 + waveB).toFixed(2);
+
+    return {
+      liveTotal,
+      liveDelta,
+      liveRatePct,
+    };
+  }, [effectiveBase, totalProfit, activeTier.rate, tick]);
+
+  const referralCode =
+    activeProfile?.referralCode ||
+    activeProfile?.refCode ||
+    (user?.uid ? `VYOM-${user.uid.slice(0, 6).toUpperCase()}` : 'VYOM-NODE');
+
+  const inviteUrl = `${typeof window !== 'undefined' ? window.location.origin : 'https://vyom-network.vercel.app'}?ref=${referralCode}`;
+
+  const directJoins = Number(activeProfile?.referralCount ?? 0);
+  const secondaryJoins = Number(activeProfile?.secondaryCount ?? 0);
+  const referralEarnings = Number(activeProfile?.referralEarnings ?? 0);
+
+  const notifications = useMemo(() => {
+    return [
+      {
+        id: 'card-portfolio-note',
+        title: 'Capital Cards Ready',
+        desc: 'Choose any of the 5 Capital Cards anytime to grow your capital.',
+        time: 'Network',
+        unread: ownedCardIds.length === 0,
+      },
+      {
+        id: 'settlement-window',
+        title: 'UPI Payout Desk Active',
+        desc: 'All approved withdrawals reach your linked UPI within 2–48 hours.',
+        time: 'System',
+        unread: false,
+      },
+    ];
+  }, [ownedCardIds.length]);
+
+  const unreadCount = notifications.filter((n) => n.unread).length;
+
+  const ledgerItems = useMemo(() => {
+    const rawHistory = Array.isArray(activeProfile?.history) ? activeProfile.history : [];
+
+    if (rawHistory.length > 0) {
+      return rawHistory.map((item, idx) => {
+        const amt = Number(item.amount ?? 0);
+        const rawType = String(item.type || item.title || '').toLowerCase();
+        const isWithdrawal = amt < 0 || rawType.includes('withdraw') || rawType.includes('settlement');
+        return {
+          id: item.refId || item.id || `ledger-${idx}`,
+          title: item.type || item.title || 'Account Activity',
+          detail: item.detail || item.note || 'VYOM Record',
+          amount: Math.abs(amt),
+          isWithdrawal,
+          status: item.status || 'Verified',
+          date: item.date ? new Date(item.date).toLocaleDateString('en-IN') : 'Recent',
+        };
+      });
+    }
+
+    return [
+      {
+        id: 'account-ready',
+        title: 'VYOM Account Ready',
+        detail: `Buy a Capital Card to begin (${totalOwnedCards} active cards)`,
+        amount: 0,
+        isWithdrawal: false,
+        status: 'Ready',
+        date: 'Today',
+      },
+    ];
+  }, [activeProfile?.history, totalOwnedCards]);
+
+  const filteredLedger = useMemo(() => {
+    if (ledgerFilter === 'credits') return ledgerItems.filter((i) => !i.isWithdrawal);
+    if (ledgerFilter === 'withdrawals') return ledgerItems.filter((i) => i.isWithdrawal);
+    return ledgerItems;
+  }, [ledgerItems, ledgerFilter]);
+
+  const showToast = (message) => {
+    setToastMsg(message);
+    setTimeout(() => setToastMsg(''), 2600);
+  };
+
+  const copyText = async (text, type) => {
+    triggerHaptic('light');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const area = document.createElement('textarea');
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        document.body.removeChild(area);
+      }
+      if (type === 'code') {
+        setCopiedCode(true);
+        setTimeout(() => setCopiedCode(false), 1800);
+        showToast('Invite code copied');
+      } else {
+        setCopiedLink(true);
+        setTimeout(() => setCopiedLink(false), 1800);
+        showToast('Invite link copied');
+      }
+    } catch {
+      showToast('Unable to copy');
+    }
+  };
+
+  const handleTelegramShare = () => {
+    triggerHaptic('medium');
+    const shareText = `Join me on VYOM Network! Use my invite code ${referralCode} to get started:`;
+    const tgShareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}&text=${encodeURIComponent(shareText)}`;
+    try {
+      if (window.Telegram?.WebApp?.openTelegramLink) {
+        window.Telegram.WebApp.openTelegramLink(tgShareUrl);
+      } else {
+        window.open(tgShareUrl, '_blank', 'noopener,noreferrer');
+      }
+    } catch {
+      copyText(inviteUrl, 'link');
+    }
+  };
+
+  const handleOpenCardOrder = (tier = null) => {
+    triggerHaptic('medium');
+    const targetTier = tier || tiers.find((t) => t.id === selectedCardId) || tiers[0];
+    if (typeof onOpenDeposit === 'function') {
+      onOpenDeposit(targetTier);
+      return;
+    }
+    setCardModalTier(targetTier);
+    setUtrInput('');
+    setCardOrderError('');
+    setIsCardModalOpen(true);
+  };
+
+  const handleSubmitCardOrder = async (e) => {
+    e.preventDefault();
+    if (cardOrderLoading) return;
+    setCardOrderError('');
+
+    if (utrInput.trim().length < 6) {
+      setCardOrderError('Please enter a valid UTR / Transaction ID (min 6 characters).');
+      return;
+    }
+
+    if (typeof submitCardOrder !== 'function') {
+      setCardOrderError('Card order service is not connected.');
+      return;
+    }
+
+    setCardOrderLoading(true);
+    try {
+      const res = await submitCardOrder(cardModalTier, utrInput.trim());
+      if (res?.error) {
+        setCardOrderError(res.error);
+      } else {
+        triggerHaptic('medium');
+        setIsCardModalOpen(false);
+        setUtrInput('');
+        showToast(`${cardModalTier.name} Card order submitted for review!`);
+      }
+    } catch (err) {
+      setCardOrderError(err?.message || 'Could not submit card order.');
+    } finally {
+      setCardOrderLoading(false);
+    }
+  };
+
+  const handleOpenWithdraw = () => {
+    triggerHaptic('medium');
+    if (typeof onOpenWithdraw === 'function') {
+      onOpenWithdraw();
+      return;
+    }
+    setWithdrawError('');
+    setWithdrawAmount(withdrawableBalance > 0 ? String(withdrawableBalance) : '');
+    if (activeProfile?.upiId) setWithdrawUpi(activeProfile.upiId);
+    setIsWithdrawOpen(true);
+  };
+
+  const handleSubmitWithdraw = async (e) => {
+    e.preventDefault();
+    if (withdrawLoading) return;
+    setWithdrawError('');
+
+    const amt = Number(withdrawAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setWithdrawError('Enter a valid amount greater than ₹0.');
+      return;
+    }
+    if (amt > withdrawableBalance) {
+      setWithdrawError('Amount cannot exceed your available balance.');
+      return;
+    }
+    if (!withdrawUpi.trim() || !withdrawUpi.includes('@')) {
+      setWithdrawError('Please enter a valid UPI ID (e.g., name@upi).');
+      return;
+    }
+    if (typeof requestWithdrawal !== 'function') {
+      setWithdrawError('Withdrawal service is not connected.');
+      return;
+    }
+
+    setWithdrawLoading(true);
+    try {
+      const res = await requestWithdrawal(amt, withdrawUpi.trim());
+      if (res?.error) {
+        setWithdrawError(res.error);
+      } else {
+        triggerHaptic('medium');
+        setIsWithdrawOpen(false);
+        showToast('UPI withdrawal request submitted (2–48h payout)');
+      }
+    } catch (err) {
+      setWithdrawError(err?.message || 'Could not submit withdrawal request.');
+    } finally {
+      setWithdrawLoading(false);
+    }
+  };
+
+  const inspectedCard = tiers.find((t) => t.id === selectedCardId) || tiers[0];
+
   return (
-    <div className="h-[100dvh] overflow-hidden bg-[#0A0A0A] text-white flex flex-col justify-between px-4 py-3 select-none">
-      {/* Compact Top Bar */}
-      <header className="w-full max-w-md mx-auto flex items-center justify-between">
-        <div className="min-w-0">
-          <p className="text-[11px] text-zinc-400 truncate">VYOM Vault</p>
-          <h1 className="text-base font-bold text-white truncate">{displayName}</h1>
+    <div className="h-[100dvh] w-full bg-[#090D0C] text-white font-sans antialiased selection:bg-[#D4AF37] selection:text-black flex flex-col justify-between overflow-hidden relative select-none">
+      {/* Ambient Emerald & Golden Radial Glows */}
+      <div className="fixed -top-24 left-1/2 -translate-x-1/2 w-[min(92vw,440px)] h-56 bg-emerald-500/[0.10] blur-[100px] rounded-full pointer-events-none z-0" />
+      <div className="fixed top-28 left-1/2 -translate-x-1/2 w-[320px] h-[200px] bg-[#D4AF37]/[0.08] blur-[95px] rounded-full pointer-events-none z-0" />
+
+      {/* Toast Feedback */}
+      {toastMsg && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#101714] border border-[#D4AF37]/60 text-[#F1D77A] px-4 py-1.5 rounded-full text-[11px] font-bold shadow-2xl whitespace-nowrap">
+          {toastMsg}
         </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 1. TOP HEADER BAR                                                     */}
+      {/* ===================================================================== */}
+      <header className="w-full max-w-md mx-auto px-4 pt-3 pb-2.5 flex items-center justify-between border-b border-white/[0.07] relative z-30 shrink-0">
+        <button
+          type="button"
+          onClick={() => {
+            triggerHaptic('light');
+            setIsProfileOpen(true);
+          }}
+          className="flex items-center gap-2.5 min-w-0 text-left active:scale-95 transition"
+        >
+          <div className="w-9 h-9 rounded-full border border-[#D4AF37]/60 bg-gradient-to-br from-[#F6D978] via-[#C99A22] to-[#76520C] flex items-center justify-center text-[#111711] font-extrabold text-xs shadow-[0_0_18px_rgba(212,175,55,0.22)] shrink-0">
+            {displayName.slice(0, 1).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-extrabold text-white truncate">
+                {displayName}
+              </span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+            </div>
+            <p className="text-[10px] text-[#9AA69D] truncate font-mono">
+              {userIdentityLine}
+            </p>
+          </div>
+        </button>
 
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            onClick={() => setView(view === 'main' ? 'info' : 'main')}
-            className="px-3 py-1.5 rounded-lg bg-[#151515] border border-white/10 text-xs font-semibold text-[#E5C158] flex items-center gap-1.5 active:scale-95 transition"
+            onClick={() => {
+              triggerHaptic('light');
+              setIsLedgerOpen(true);
+            }}
+            aria-label="History"
+            className="w-9 h-9 rounded-full border border-white/[0.09] bg-white/[0.035] flex items-center justify-center text-[#C6CFC8] hover:border-[#D4AF37]/50 hover:text-white transition active:scale-95"
           >
-            {view === 'main' ? (
-              <>
-                <Info className="w-3.5 h-3.5" />
-                <span>Info &amp; Help</span>
-              </>
-            ) : (
-              <>
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back</span>
-              </>
+            <History className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('light');
+              setIsNotifOpen(true);
+            }}
+            aria-label="Notifications"
+            className="relative w-9 h-9 rounded-full border border-white/[0.09] bg-white/[0.035] flex items-center justify-center text-[#C6CFC8] hover:border-[#D4AF37]/50 hover:text-white transition active:scale-95"
+          >
+            <Bell className="w-4 h-4" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#F0A818]" />
             )}
           </button>
 
-          {typeof logout === 'function' && (
-            <button
-              type="button"
-              onClick={handleLogout}
-              aria-label="Logout"
-              className="p-1.5 rounded-lg bg-[#151515] border border-white/10 text-zinc-400 hover:text-red-400 active:scale-95 transition"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('light');
+              setIsRulesOpen(true);
+            }}
+            className="h-9 px-3 rounded-full border border-[#D4AF37]/40 bg-[#D4AF37]/[0.08] text-[10px] font-bold text-[#F1D77A] hover:bg-[#D4AF37]/15 transition active:scale-95"
+          >
+            Rules
+          </button>
         </div>
       </header>
 
-      {/* Main Content Area (No Scroll on Main Screen) */}
-      <main className="w-full max-w-md mx-auto flex-1 flex flex-col justify-center my-2 min-h-0">
-        {view === 'main' ? (
-          <div className="bg-[#121212] border border-white/10 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between text-xs text-zinc-400">
-              <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-                <TrendingUp className="w-4 h-4" />
-                <span>Live Indicative Ticker</span>
-              </span>
-              <span className="font-mono text-[11px] text-zinc-500">1s tick</span>
-            </div>
+      {/* ===================================================================== */}
+      {/* 2. MAIN VIEWPORT (3 TABS: VAULT, CARDS, NETWORK)                      */}
+      {/* ===================================================================== */}
+      <main className="flex-1 w-full max-w-md mx-auto px-4 flex flex-col justify-center overflow-hidden relative z-10">
+        {activeTab === 'dashboard' && (
+          <div className="flex flex-col justify-between h-full max-h-[530px] py-1 space-y-3">
+            {/* SILVER-PLATINUM METALLIC CARD (High-Contrast Numbers, No Heartbeat) */}
+            <section className="rounded-3xl border border-white/75 bg-gradient-to-br from-[#F8FAFC] via-[#E2E8F0] to-[#CBD5E1] p-5 shadow-[0_22px_50px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.95)] flex flex-col justify-between relative overflow-hidden">
+              <div className="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/50 blur-2xl pointer-events-none" />
 
-            {/* Per-Second Fluctuating Primary Number */}
-            <div>
-              <p className="text-xs text-zinc-400">Indicative Value</p>
-              <p className="text-3xl font-extrabold font-mono tabular-nums text-white mt-0.5">
-                {formatRupee(liveStats.liveValue)}
-              </p>
-            </div>
-
-            {/* Compact Two-Stat Row */}
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/10">
-              <div className="bg-[#0B0B0B] rounded-xl p-3 border border-white/5">
-                <p className="text-[11px] text-zinc-400">Per-Day Pace</p>
-                <p className="text-sm font-bold font-mono tabular-nums text-emerald-400 mt-0.5">
-                  +{formatRupee(liveStats.liveDelta)}
-                </p>
+              <div className="flex items-center justify-between relative z-10">
+                <span className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-600">
+                  Total Balance
+                </span>
+                <span className="rounded-full border border-slate-900/15 bg-slate-900/[0.06] px-2.5 py-0.5 text-[10px] font-extrabold text-slate-900">
+                  {totalOwnedCards > 0 ? `${activeTier.name} Card` : 'No Card Active'}
+                </span>
               </div>
 
-              <div className="bg-[#0B0B0B] rounded-xl p-3 border border-white/5">
-                <p className="text-[11px] text-zinc-400">Indicative Rate</p>
-                <p className="text-sm font-bold font-mono tabular-nums text-[#E5C158] mt-0.5">
-                  {liveStats.livePct}% / mo
+              <div className="my-5 text-center relative z-10">
+                <p className="font-mono text-[clamp(32px,9.5vw,42px)] font-black tracking-tight text-slate-950 leading-none tabular-nums">
+                  {formatINR(liveMetrics.liveTotal, 2)}
                 </p>
-              </div>
-            </div>
 
-            {/* Minimal Capital Summary */}
-            <div className="flex items-center justify-between text-xs text-zinc-400 pt-1">
-              <span>Base Capital: {formatRupee(baseCapital)}</span>
+                <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-slate-900/[0.07] border border-slate-900/10 px-3 py-1 text-[11px] font-bold">
+                  <span className="text-emerald-700 font-mono">
+                    +{formatINR(liveMetrics.liveDelta, 2)}
+                  </span>
+                  <span className="text-slate-400">•</span>
+                  <span className="text-slate-800 font-mono">
+                    {liveMetrics.liveRatePct}% / mo
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-900/10 grid grid-cols-2 gap-2 text-[10px] relative z-10">
+                <div>
+                  <span className="block font-semibold text-slate-600">Your Capital</span>
+                  <span className="font-mono font-black text-slate-950 text-xs tabular-nums">
+                    {formatINR(effectiveBase, 0)}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="block font-semibold text-slate-600">Total Profit</span>
+                  <span className="font-mono font-black text-emerald-700 text-xs tabular-nums">
+                    {formatINR(totalProfit, 2)}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            {/* READY TO WITHDRAW STRIP */}
+            <section className="rounded-2xl border border-[#D4AF37]/30 bg-gradient-to-r from-[#D4AF37]/[0.11] via-[#121A17] to-[#101714] px-4 py-3 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="w-8 h-8 rounded-xl border border-[#D4AF37]/40 bg-[#D4AF37]/15 flex items-center justify-center text-[#F1D77A] shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-extrabold text-white truncate">
+                    Ready to Withdraw: {formatINR(withdrawableBalance, 0)}
+                  </p>
+                  <p className="text-[10px] text-[#B9C2BC] truncate">
+                    Direct UPI payout • 2–48 hours
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setView('info')}
-                className="text-[#E5C158] font-semibold underline"
+                onClick={handleOpenWithdraw}
+                className="shrink-0 rounded-full border border-[#D4AF37]/45 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 px-3 py-1 text-[10px] font-extrabold text-[#F1D77A] active:scale-95 transition"
               >
-                Read Full Guide
+                Withdraw
+              </button>
+            </section>
+
+            {/* PRIMARY ACTION BUTTON */}
+            <button
+              type="button"
+              onClick={() => handleOpenCardOrder(activeTier)}
+              className="w-full min-h-[46px] bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold py-3 px-4 rounded-xl text-xs shadow-[0_8px_25px_rgba(212,175,55,0.22),inset_0_1px_0_rgba(255,255,255,0.45)] active:scale-[0.98] transition flex items-center justify-center gap-2"
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>
+                Buy Capital Card{totalOwnedCards > 0 ? ` (${totalOwnedCards} Active)` : ''}
+              </span>
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'cards' && (
+          <div className="flex flex-col justify-between h-full max-h-[530px] py-1 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-extrabold text-white">Capital Cards</h2>
+                <p className="text-[10px] text-[#9AA69D]">
+                  Choose from 5 cards • Buy as many as you want
+                </p>
+              </div>
+              <span className="rounded-full border border-[#D4AF37]/35 bg-[#D4AF37]/10 px-2.5 py-0.5 text-[9px] font-bold text-[#F1D77A] font-mono">
+                {totalOwnedCards} Active
+              </span>
+            </div>
+
+            <div className="flex gap-2.5 overflow-x-auto pb-1 snap-x">
+              {tiers.map((card) => {
+                const isSelected = inspectedCard.id === card.id;
+                const isOwned = ownedCardIds.includes(card.id);
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic('light');
+                      setSelectedCardId(card.id);
+                    }}
+                    className={`snap-start shrink-0 w-[132px] h-[152px] rounded-2xl bg-gradient-to-b ${card.gradient} border ${
+                      isSelected ? 'border-[#D4AF37] ring-1 ring-[#D4AF37]/50' : card.border
+                    } p-3 flex flex-col justify-between text-left transition active:scale-95`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span
+                        style={{ color: card.accent }}
+                        className="text-[8px] font-black uppercase tracking-widest"
+                      >
+                        {card.badge}
+                      </span>
+                      {isOwned && (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-300 text-[7px] font-extrabold">
+                          OWNED
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-extrabold text-white">{card.name}</p>
+                      <p className="text-[11px] font-mono font-bold text-zinc-300 mt-0.5">
+                        {formatINR(card.capital, 0)}
+                      </p>
+                    </div>
+
+                    <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px]">
+                      <span className="text-zinc-400">Monthly</span>
+                      <span style={{ color: card.accent }} className="font-extrabold">
+                        {(card.rate * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="rounded-2xl border border-white/[0.09] bg-[#101714] p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-extrabold text-white">
+                    {inspectedCard.name} Card • {formatINR(inspectedCard.capital, 0)}
+                  </p>
+                  <p className="text-[10px] text-[#9AA69D] mt-0.5">{inspectedCard.note}</p>
+                </div>
+                <span
+                  style={{ color: inspectedCard.accent }}
+                  className="text-xs font-extrabold font-mono"
+                >
+                  {(inspectedCard.rate * 100).toFixed(1)}%/mo
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleOpenCardOrder(inspectedCard)}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold text-xs active:scale-[0.98] transition"
+              >
+                Buy {inspectedCard.name} Card ({formatINR(inspectedCard.capital, 0)})
               </button>
             </div>
           </div>
-        ) : (
-          /* Dedicated Information & Help Article View */
-          <div className="bg-[#121212] border border-white/10 rounded-2xl p-4 h-full max-h-[76dvh] overflow-y-auto space-y-3 text-xs leading-relaxed text-zinc-300">
-            <h2 className="text-sm font-bold text-[#E5C158]">
-              VYOM Network — Information &amp; Help Guide
-            </h2>
+        )}
 
-            <p>
-              <strong>Live Numbers:</strong> Main screen par dikhne wale numbers per second
-              indicative fluctuation dikhate hain. Yeh sirf live display ke liye hain aur guaranteed
-              return nahi hain.
-            </p>
+        {activeTab === 'network' && (
+          <div className="flex flex-col justify-between h-full max-h-[530px] py-1 space-y-3">
+            <div className="rounded-2xl border border-white/[0.09] bg-[#101714] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-extrabold text-white">Referral Network</h2>
+                  <p className="text-[10px] text-[#9AA69D]">
+                    Invite friends • Earn Level 1 &amp; Level 2 rewards
+                  </p>
+                </div>
+                <span className="text-xs font-mono font-extrabold text-[#F1D77A]">
+                  {formatINR(referralEarnings, 0)}
+                </span>
+              </div>
 
-            <p>
-              <strong>Capital &amp; Tiers:</strong> Micro-deposit ₹100 se shuru hota hai aur 5 tiers
-              (Starter ₹2,000, Growth ₹5,000, Elite ₹10,000, Prime ₹50,000, Signature ₹1,00,000)
-              indicative monthly rates ke saath structured hain.
-            </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-[#090E0C] border border-white/[0.07] p-2.5">
+                  <span className="text-[9px] text-[#9AA69D] block">Level 1 Direct</span>
+                  <span className="text-sm font-extrabold text-white font-mono">
+                    {directJoins} Members
+                  </span>
+                </div>
+                <div className="rounded-xl bg-[#090E0C] border border-white/[0.07] p-2.5">
+                  <span className="text-[9px] text-[#9AA69D] block">Level 2 Team</span>
+                  <span className="text-sm font-extrabold text-white font-mono">
+                    {secondaryJoins} Members
+                  </span>
+                </div>
+              </div>
 
-            <p>
-              <strong>Profit Split &amp; Settlement:</strong> Eligible realised yield par 50/50 split
-              laagu hota hai aur UTR/UPI verification ke baad settlement 2–48 hours mein process hota
-              hai.
-            </p>
+              <div className="rounded-xl bg-[#090E0C] border border-[#D4AF37]/30 p-2.5 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-[8px] uppercase tracking-wider text-[#9AA69D] block">
+                    Your Invite Code
+                  </span>
+                  <span className="font-mono text-xs font-extrabold text-[#F1D77A]">
+                    {referralCode}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyText(referralCode, 'code')}
+                  className="px-2.5 py-1.5 rounded-lg bg-white/[0.07] hover:bg-white/[0.12] text-[10px] font-bold text-white flex items-center gap-1 active:scale-95 transition"
+                >
+                  {copiedCode ? (
+                    <Check className="w-3 h-3 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                  <span>{copiedCode ? 'Copied' : 'Copy Code'}</span>
+                </button>
+              </div>
+            </div>
 
-            <p className="text-zinc-400">
-              <strong>Risk Note:</strong> Capital aur market conditions mein risk shamil hai. Kisi
-              bhi decision se pehle apni suvidha aur niyam zaroor dekhein.
-            </p>
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={handleTelegramShare}
+                className="min-h-[44px] rounded-xl bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Invite Friends</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => copyText(inviteUrl, 'link')}
+                className="min-h-[44px] rounded-xl border border-white/15 bg-white/[0.04] text-white font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition"
+              >
+                {copiedLink ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                <span>{copiedLink ? 'Link Copied' : 'Copy Link'}</span>
+              </button>
+            </div>
           </div>
         )}
       </main>
 
-      {/* Compact Footer Note */}
-      <footer className="w-full max-w-md mx-auto text-center text-[11px] text-zinc-500 truncate">
-        Indicative figures only • Tap Info &amp; Help for full details
-      </footer>
+      {/* ===================================================================== */}
+      {/* 3. BOTTOM 3-TAB NAVIGATION BAR (Vault, Cards, Network)                */}
+      {/* ===================================================================== */}
+      <nav className="w-full max-w-md mx-auto px-4 pt-2 pb-3 border-t border-white/[0.07] bg-[#090D0C]/95 backdrop-blur-xl relative z-30 shrink-0">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { id: 'dashboard', label: 'Vault', icon: Wallet },
+            { id: 'cards', label: 'Cards', icon: CreditCard },
+            { id: 'network', label: 'Network', icon: Users },
+          ].map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  triggerHaptic('light');
+                  setActiveTab(item.id);
+                }}
+                className={`py-2 rounded-xl flex flex-col items-center justify-center gap-1 transition active:scale-95 ${
+                  isActive
+                    ? 'bg-[#D4AF37]/15 border border-[#D4AF37]/45 text-[#F1D77A]'
+                    : 'border border-transparent text-[#8E9A92] hover:text-white'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="text-[10px] font-bold">{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* ===================================================================== */}
+      {/* 4. BUY CAPITAL CARD & UTR SUBMISSION MODAL                            */}
+      {/* ===================================================================== */}
+      {isCardModalOpen && (
+        <div
+          onClick={() => setIsCardModalOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/35 bg-[#101714] p-5 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between border-b border-white/[0.08] pb-3">
+              <div>
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-[#E5C158]">
+                  Buy Capital Card{' '}
+                  {pendingCardOrdersCount > 0 ? `(${pendingCardOrdersCount} Pending)` : ''}
+                </span>
+                <h3 className="text-sm font-extrabold text-white mt-0.5">
+                  {cardModalTier.name} Card • {formatINR(cardModalTier.capital, 0)}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCardModalOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.07] flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              {tiers.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setCardModalTier(t)}
+                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold shrink-0 border transition ${
+                    cardModalTier.id === t.id
+                      ? 'border-[#D4AF37] bg-[#D4AF37]/15 text-[#F1D77A]'
+                      : 'border-white/10 bg-white/[0.03] text-zinc-400'
+                  }`}
+                >
+                  {t.name} ({formatINR(t.capital, 0)})
+                </button>
+              ))}
+            </div>
+
+            <form onSubmit={handleSubmitCardOrder} className="space-y-3">
+              <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3 text-[11px] text-zinc-300 space-y-1">
+                <p>
+                  Card Amount:{' '}
+                  <strong className="text-white">{formatINR(cardModalTier.capital, 0)}</strong>
+                </p>
+                <p>
+                  Monthly Rate:{' '}
+                  <strong className="text-emerald-300">
+                    {(cardModalTier.rate * 100).toFixed(1)}% / month
+                  </strong>
+                </p>
+                <p className="text-[10px] text-zinc-400">
+                  Pay {formatINR(cardModalTier.capital, 0)} via UPI/Bank transfer and enter your
+                  12-digit UTR below for verification (2–48h).
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">
+                  Bank UTR / Transaction Reference
+                </label>
+                <input
+                  type="text"
+                  value={utrInput}
+                  onChange={(e) => setUtrInput(e.target.value)}
+                  placeholder="Enter 12-digit UTR number"
+                  required
+                  minLength={6}
+                  className="w-full bg-[#090E0C] border border-white/15 focus:border-[#D4AF37] rounded-xl px-3 py-2.5 text-xs text-white font-mono placeholder-zinc-500 focus:outline-none"
+                />
+              </div>
+
+              {cardOrderError && (
+                <p className="text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl p-2 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{cardOrderError}</span>
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={cardOrderLoading}
+                className="w-full bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold py-2.5 rounded-xl text-xs active:scale-[0.98] transition disabled:opacity-60"
+              >
+                {cardOrderLoading ? 'Submitting...' : 'Submit Card Order'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 5. UPI WITHDRAWAL MODAL                                               */}
+      {/* ===================================================================== */}
+      {isWithdrawOpen && (
+        <div
+          onClick={() => setIsWithdrawOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/35 bg-[#101714] p-5 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between border-b border-white/[0.08] pb-3">
+              <div>
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-emerald-300">
+                  UPI Payout • 2–48 Hours
+                </span>
+                <h3 className="text-sm font-extrabold text-white mt-0.5">
+                  Request UPI Withdrawal
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWithdrawOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.07] flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitWithdraw} className="space-y-3">
+              <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3 text-[11px] text-zinc-300 space-y-1">
+                <p>
+                  Available Balance:{' '}
+                  <strong className="text-emerald-300">
+                    {formatINR(withdrawableBalance, 2)}
+                  </strong>
+                </p>
+                <p className="text-[10px] text-zinc-400">
+                  Profit Split: {userSplitPct}% You / {platformSplitPct}% VYOM Network.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">
+                  Amount to Withdraw (₹)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="1"
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  placeholder="Enter amount"
+                  required
+                  className="w-full bg-[#090E0C] border border-white/15 focus:border-[#D4AF37] rounded-xl px-3 py-2.5 text-xs text-white font-mono placeholder-zinc-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">
+                  Your UPI ID
+                </label>
+                <input
+                  type="text"
+                  value={withdrawUpi}
+                  onChange={(e) => setWithdrawUpi(e.target.value)}
+                  placeholder="yourname@upi"
+                  required
+                  className="w-full bg-[#090E0C] border border-white/15 focus:border-[#D4AF37] rounded-xl px-3 py-2.5 text-xs text-white font-mono placeholder-zinc-500 focus:outline-none"
+                />
+              </div>
+
+              {withdrawError && (
+                <p className="text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-xl p-2 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{withdrawError}</span>
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={withdrawLoading}
+                className="w-full bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold py-2.5 rounded-xl text-xs active:scale-[0.98] transition disabled:opacity-60"
+              >
+                {withdrawLoading ? 'Submitting...' : 'Submit Withdrawal Request'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 6. HISTORY MODAL (Accessible from Top Header Clock Icon)              */}
+      {/* ===================================================================== */}
+      {isLedgerOpen && (
+        <div
+          onClick={() => setIsLedgerOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/30 bg-[#101714] p-5 space-y-3 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-[#F0A818]" />
+                <h3 className="text-sm font-extrabold text-white">Transaction History</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLedgerOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.07] flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex gap-1.5">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'credits', label: 'Credits' },
+                { id: 'withdrawals', label: 'Payouts' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setLedgerFilter(tab.id)}
+                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition ${
+                    ledgerFilter === tab.id
+                      ? 'bg-[#D4AF37] text-[#17130A]'
+                      : 'bg-white/[0.05] text-[#9AA69D]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {filteredLedger.map((row) => (
+                <div
+                  key={row.id}
+                  className="rounded-xl border border-white/[0.08] bg-[#090E0C] px-3.5 py-2.5 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{row.title}</p>
+                    <p className="text-[10px] text-[#9AA69D] truncate">{row.detail}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span
+                      className={`block font-mono text-xs font-extrabold ${
+                        row.isWithdrawal ? 'text-amber-300' : 'text-emerald-300'
+                      }`}
+                    >
+                      {row.isWithdrawal ? '-' : '+'}
+                      {formatINR(row.amount, 0)}
+                    </span>
+                    <span className="text-[9px] text-[#7D8A81]">{row.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 7. NOTIFICATIONS MODAL                                                */}
+      {/* ===================================================================== */}
+      {isNotifOpen && (
+        <div
+          onClick={() => setIsNotifOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/30 bg-[#101714] p-5 space-y-3 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div className="flex items-center gap-2">
+                <Bell className="w-4 h-4 text-[#F0A818]" />
+                <h3 className="text-sm font-extrabold text-white">Notifications</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNotifOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.07] flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {notifications.map((n, idx) => (
+                <div
+                  key={n.id || idx}
+                  className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3"
+                >
+                  <div className="flex justify-between text-xs font-bold text-white">
+                    <span>{n.title}</span>
+                    <span className="text-[10px] text-[#7D8A81]">{n.time || ''}</span>
+                  </div>
+                  <p className="text-[11px] text-[#9AA69D] mt-1">{n.desc || n.message}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 8. PROFILE & ACCOUNT MODAL                                            */}
+      {/* ===================================================================== */}
+      {isProfileOpen && (
+        <div
+          onClick={() => setIsProfileOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/30 bg-[#101714] p-5 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-[#F0A818]" />
+                <h3 className="text-sm font-extrabold text-white">Your Profile</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsProfileOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.07] flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3.5 space-y-1.5">
+              <p className="text-sm font-extrabold text-white">{displayName}</p>
+              <p className="text-[11px] font-mono text-[#E5C158]">{handleTag}</p>
+              <p className="text-[11px] text-emerald-300 pt-1">
+                Active Cards:{' '}
+                <strong>
+                  {totalOwnedCards} {totalOwnedCards === 1 ? 'Card' : 'Cards'}
+                </strong>{' '}
+                ({formatINR(baseCapital, 0)})
+              </p>
+              <p className="text-[11px] text-zinc-400">
+                Linked UPI:{' '}
+                <strong className="text-white">
+                  {activeProfile?.upiId || 'Not configured yet'}
+                </strong>
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsProfileOpen(false);
+                  handleOpenWithdraw();
+                }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition"
+              >
+                <ArrowUpRight className="w-4 h-4" />
+                <span>Withdraw via UPI</span>
+              </button>
+
+              {typeof logout === 'function' && (
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="w-full py-2.5 rounded-xl border border-rose-500/35 bg-rose-500/10 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 9. RULES & POLICIES MODAL                                             */}
+      {/* ===================================================================== */}
+      {isRulesOpen && (
+        <div
+          onClick={() => setIsRulesOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/35 bg-[#101714] p-5 space-y-4 shadow-2xl max-h-[85vh] overflow-y-auto"
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-white/[0.08] pb-3">
+              <div>
+                <span className="inline-flex items-center gap-1 rounded-full border border-[#D4AF37]/30 bg-[#D4AF37]/10 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#F0A818]">
+                  <ShieldCheck className="w-3 h-3" /> VYOM Rules
+                </span>
+                <h3 className="mt-1 text-sm font-extrabold text-white">
+                  Profit Split &amp; Account Rules
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRulesOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.07] flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-xl bg-[#090E0C] border border-emerald-400/25 p-3.5 space-y-1.5">
+              <h4 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider">
+                1. {userSplitPct}/{platformSplitPct} Profit Sharing
+              </h4>
+              <p className="text-[11px] leading-relaxed text-zinc-300">
+                Profit is shared clearly: <strong>{userSplitPct}% belongs to you</strong> and{' '}
+                <strong>{platformSplitPct}% goes to VYOM Network</strong> at withdrawal.
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3.5 space-y-1.5">
+              <h4 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider">
+                2. Capital Cards (No Limit)
+              </h4>
+              <p className="text-[11px] text-zinc-300">
+                Choose from 5 Capital Cards: <strong>Starter (₹2,000)</strong>,{' '}
+                <strong>Growth (₹5,000)</strong>, <strong>Elite (₹10,000)</strong>,{' '}
+                <strong>Prime (₹50,000)</strong>, and <strong>Signature (₹1,00,000)</strong>. You
+                can buy as many cards as you want on your account.
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3.5 space-y-2.5">
+              <div className="flex gap-1.5">
+                {[
+                  { id: 'terms', label: 'Terms' },
+                  { id: 'privacy', label: 'Privacy' },
+                  { id: 'risk', label: 'Risk Policy' },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setPolicyTab(t.id)}
+                    className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition ${
+                      policyTab === t.id
+                        ? 'bg-[#D4AF37] text-[#17130A]'
+                        : 'bg-white/[0.05] text-zinc-400'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="text-[11px] leading-relaxed text-zinc-300 space-y-1.5">
+                {policyTab === 'terms' && (
+                  <>
+                    <p>
+                      • One account per email address. You can buy as many Capital Cards as you
+                      want.
+                    </p>
+                    <p>
+                      • All card purchases require valid UTR verification. Approved UPI
+                      withdrawals process within 2 to 48 hours.
+                    </p>
+                  </>
+                )}
+                {policyTab === 'privacy' && (
+                  <>
+                    <p>
+                      • Your name, email, referral code, and linked UPI ID are stored securely to
+                      run your account and process payouts.
+                    </p>
+                    <p>
+                      • Protected by Firebase Authentication and Firestore access rules.
+                    </p>
+                  </>
+                )}
+                {policyTab === 'risk' && (
+                  <>
+                    <p>
+                      • Monthly percentages are estimates, not guaranteed returns. Capital carries
+                      risk.
+                    </p>
+                    <p className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>All payouts are checked before release.</span>
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

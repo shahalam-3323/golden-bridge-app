@@ -3,39 +3,15 @@ import { auth, db } from './firebase';
 import { signOut } from 'firebase/auth';
 import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
 
-/**
- * Resolves monthly return rate locally based on capital amount
- * when AuthContext does not export rateForAmount.
- */
-const rateForAmount = (amount = 0) => {
-  try {
-    const num = Number(amount) || 0;
-    if (num >= 100000) return 0.08;
-    if (num >= 50000) return 0.07;
-    if (num >= 10000) return 0.055;
-    if (num >= 5000) return 0.045;
-    if (num >= 2000) return 0.035;
-    return 0.035;
-  } catch {
-    return 0.035;
-  }
-};
-
-/**
- * Formats numbers into Indian rupee currency format with two decimal places.
- */
 const fmt = (n) =>
   Number(n || 0).toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 
-/**
- * Master settlement and capital node audit console for administrators.
- */
 export default function AdminPanel() {
   const [users, setUsers] = useState([]);
-  const [activeTab, setActiveTab] = useState('orders'); // Default to Card Purchases & Deposits
+  const [activeTab, setActiveTab] = useState('orders');
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [bankUtr, setBankUtr] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
@@ -45,7 +21,6 @@ export default function AdminPanel() {
     fetchUsers();
   }, []);
 
-  // Fetches all operator documents from Firestore users collection
   const fetchUsers = async () => {
     try {
       const uSnap = await getDocs(collection(db, 'users'));
@@ -55,7 +30,6 @@ export default function AdminPanel() {
     }
   };
 
-  // 1. ALL PENDING CARD PURCHASES & CUSTOM DEPOSITS
   const allCardOrders = users
     .filter((u) => u.role !== 'admin')
     .flatMap((u) =>
@@ -65,9 +39,7 @@ export default function AdminPanel() {
         userEmail: u.email,
         userFullName: u.fullName,
         userPhone: u.phone,
-        userBonusUnlocked: u.bonusUnlocked,
         activeCards: u.activeCards || [],
-        customDeposits: u.customDeposits || [],
         cardActivatedAt: u.cardActivatedAt || {},
         referredBy: u.referredBy,
         idxInUserArray: idx,
@@ -77,7 +49,6 @@ export default function AdminPanel() {
 
   const pendingOrders = allCardOrders.filter((o) => o.status === 'pending');
 
-  // 2. ALL PENDING REDEMPTIONS
   const allRedeemRequests = users
     .filter((u) => u.role !== 'admin')
     .flatMap((u) =>
@@ -95,7 +66,6 @@ export default function AdminPanel() {
 
   const pendingRedeems = allRedeemRequests.filter((r) => r.status === 'pending');
 
-  // ─── ACTION A: APPROVE CARD PURCHASE & ACTIVATE NODE ───
   const handleApproveOrder = async (order) => {
     setActionLoading(true);
     setActionError('');
@@ -104,84 +74,36 @@ export default function AdminPanel() {
       const user = users.find((u) => u.id === order.userId);
       if (!user) return;
 
+      const activeList = Array.isArray(user.activeCards) ? user.activeCards : [];
       const now = new Date().toISOString();
-      const isDeposit = order.type === 'custom_deposit';
-
       const updatedPurchases = (user.pendingPurchases || []).map((p, idx) =>
         idx === order.idxInUserArray ? { ...p, status: 'approved', reviewedAt: now } : p
       );
 
-      const shouldUnlockBonus = !user.bonusUnlocked;
-      const existingDeposits = user.customDeposits || [];
+      const shouldRewardReferral = !user.referralRewarded && Boolean(user.referredBy);
+      const updatedCards = [...activeList, order.cardId];
+      const updatedTimestamps = {
+        ...(user.cardActivatedAt || {}),
+        [order.cardId]: now,
+      };
 
-      // Upline referral payouts trigger once when the referred user meets qualification criteria
-      const orderAmount = Number(order.amount) || 0;
-      const qualifiesForReferral = !isDeposit || orderAmount >= 2000;
-      const shouldRewardReferral =
-        qualifiesForReferral && !user.referralRewarded && Boolean(user.referredBy);
-      const referralRewarded = shouldRewardReferral || Boolean(user.referralRewarded);
-
-      // Append tier card or custom deposit ledger node
-      const activeList = user.activeCards || [];
-      const updatedCards = isDeposit
-        ? activeList
-        : activeList.includes(order.cardId)
-          ? activeList
-          : [...activeList, order.cardId];
-
-      const updatedDeposits = isDeposit
-        ? existingDeposits.some((d) => d.id === order.orderId)
-          ? existingDeposits
-          : [
-              ...existingDeposits,
-              {
-                id: order.orderId,
-                type: 'custom_deposit',
-                capital: Number(order.amount),
-                monthlyRate: Number(order.lockedRate) || rateForAmount(order.amount),
-                activatedAt: now,
-              },
-            ]
-        : existingDeposits;
-
-      // Record activation timestamp for tier cards
-      const updatedTimestamps = isDeposit
-        ? { ...(user.cardActivatedAt || {}) }
-        : { ...(user.cardActivatedAt || {}), [order.cardId]: now };
-
-      const logEntry = isDeposit
-        ? {
-            type: 'Custom Deposit Activated by Bank Audit',
-            detail: `Verified micro-deposit of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Base Amount node activated at ${(
-              (Number(order.lockedRate) || rateForAmount(order.amount)) * 100
-            ).toFixed(1)}%/month. ${
-              shouldUnlockBonus ? '₹1,000 Welcome Base Amount unlocked and merged.' : ''
-            }`,
-            amount: order.amount,
-            refId: order.orderId,
-            date: now,
-          }
-        : {
-            type: `Card Activated by Bank Audit: ${order.cardName}`,
-            detail: `Verified Payment of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Node activated. ${
-              shouldUnlockBonus ? '₹1,000 Welcome Capital unlocked into compounding.' : ''
-            }`,
-            amount: order.amount,
-            refId: order.orderId,
-            date: now,
-          };
+      const logEntry = {
+        type: `Card Activated by Bank Audit: ${order.cardName}`,
+        detail: `Verified Payment of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Card activated (${updatedCards.length} total cards).`,
+        amount: order.amount,
+        refId: order.orderId,
+        status: 'Approved',
+        date: now,
+      };
 
       await updateDoc(doc(db, 'users', order.userId), {
         activeCards: updatedCards,
-        customDeposits: updatedDeposits,
         cardActivatedAt: updatedTimestamps,
-        bonusUnlocked: true,
-        referralRewarded,
+        referralRewarded: shouldRewardReferral || Boolean(user.referralRewarded),
         pendingPurchases: updatedPurchases,
         history: [logEntry, ...(user.history || [])],
       });
 
-      // Trigger Level 1 (+200) and Level 2 (+100) referral rewards once
       if (shouldRewardReferral) {
         try {
           const usersRef = collection(db, 'users');
@@ -241,7 +163,6 @@ export default function AdminPanel() {
     }
   };
 
-  // ─── ACTION B: REJECT CARD ORDER ───
   const handleRejectOrder = async (order) => {
     setActionLoading(true);
     setActionError('');
@@ -251,19 +172,16 @@ export default function AdminPanel() {
       if (!user) return;
 
       const now = new Date().toISOString();
-      const isDeposit = order.type === 'custom_deposit';
-
       const updatedPurchases = (user.pendingPurchases || []).map((p, idx) =>
         idx === order.idxInUserArray ? { ...p, status: 'rejected', reviewedAt: now } : p
       );
 
       const logEntry = {
-        type: isDeposit ? 'Custom Deposit Order Rejected' : 'Card Purchase Order Rejected',
-        detail: isDeposit
-          ? `Micro-deposit of ₹${fmt(order.amount)} with UTR: ${order.bankUtr} could not be verified in bank records.`
-          : `Payment for ${order.cardName} with UTR: ${order.bankUtr} could not be verified in bank records.`,
+        type: 'Card Purchase Order Rejected',
+        detail: `Payment for ${order.cardName} with UTR: ${order.bankUtr} could not be verified in bank records.`,
         amount: 0,
         refId: order.orderId,
+        status: 'Rejected',
         date: now,
       };
 
@@ -280,7 +198,6 @@ export default function AdminPanel() {
     }
   };
 
-  // ─── ACTION C: APPROVE REDEMPTION WITH BANK UTR ───
   const handleApproveRedeem = async (request) => {
     if (!bankUtr.trim() || bankUtr.trim().length < 6) {
       setActionError('Please enter a valid Bank UTR / Transaction Reference Number (min 6 chars).');
@@ -306,9 +223,10 @@ export default function AdminPanel() {
         detail: `Net Payout of ₹${fmt(request.amount || request.netPayout)} dispatched to ${
           request.destinationUpi || request.userUpiId
         }. Bank UTR: ${bankUtr.trim()}`,
-        amount: request.amount || request.netPayout,
+        amount: -(request.amount || request.netPayout),
         refId: request.id,
         bankUtr: bankUtr.trim(),
+        status: 'Settled',
         date: now,
       };
 
@@ -327,7 +245,6 @@ export default function AdminPanel() {
     }
   };
 
-  // Signs administrator out of Firebase Auth with safe error reporting
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -339,14 +256,13 @@ export default function AdminPanel() {
   return (
     <div className="min-h-screen bg-[#090C0E] text-[#E2E8F0] p-6 font-mono tabular-nums">
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
         <div className="flex justify-between items-center pb-4 border-b border-white/[0.08]">
           <div>
             <h1 className="text-xl font-black text-[#E5C158] uppercase tracking-wider">
               VYOM Protocol Audit Console
             </h1>
             <p className="text-[10px] text-slate-400 mt-0.5">
-              Master Settlement &amp; Capital Node Oversight
+              Master Settlement &amp; Capital Card Oversight
             </p>
           </div>
           <button
@@ -358,7 +274,19 @@ export default function AdminPanel() {
           </button>
         </div>
 
-        {/* 3 Tabs: Orders | Redeems | Users */}
+        {actionError && !selectedRequest && (
+          <div className="bg-rose-500/10 border border-rose-500/35 text-rose-300 text-xs p-3 rounded-xl flex items-center justify-between">
+            <span>{actionError}</span>
+            <button
+              type="button"
+              onClick={() => setActionError('')}
+              className="text-rose-200 font-bold ml-3"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <div className="flex gap-2 bg-[#11161A] p-1.5 rounded-2xl border border-white/[0.08]">
           <button
             type="button"
@@ -369,7 +297,7 @@ export default function AdminPanel() {
                 : 'text-slate-400'
             }`}
           >
-            Orders &amp; Deposits ({pendingOrders.length})
+            Card Orders ({pendingOrders.length})
           </button>
           <button
             type="button"
@@ -395,7 +323,6 @@ export default function AdminPanel() {
           </button>
         </div>
 
-        {/* ─── TAB 1: PENDING CARD PURCHASE ORDERS ─── */}
         {activeTab === 'orders' && (
           <div className="space-y-3">
             {pendingOrders.length === 0 ? (
@@ -406,7 +333,7 @@ export default function AdminPanel() {
               pendingOrders.map((order) => (
                 <div
                   key={order.orderId}
-                  className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4 flex justify-between items-center"
+                  className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4 flex justify-between items-center gap-3"
                 >
                   <div>
                     <div className="flex items-center gap-2">
@@ -416,14 +343,11 @@ export default function AdminPanel() {
                       <span className="text-[9px] text-[#E5C158]/70">#{order.orderId}</span>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {order.userEmail} • +91 {order.userPhone}
+                      {order.userEmail} {order.userPhone ? `• +91 ${order.userPhone}` : ''}
                     </p>
                     <p className="text-sm text-[#E5C158] font-bold mt-2 tabular-nums">
-                      {order.type === 'custom_deposit'
-                        ? `Custom Deposit: ₹${fmt(order.amount)} • Locked ${(
-                            (Number(order.lockedRate) || rateForAmount(order.amount)) * 100
-                          ).toFixed(1)}%/month`
-                        : `Card: ${order.cardName} • Capital: ₹${fmt(order.amount)}`}
+                      Card: {order.cardName} • Amount: ₹{fmt(order.amount)} • Active Cards:{' '}
+                      {(order.activeCards || []).length}
                     </p>
                     <div className="mt-1 bg-[#090C0E] border border-white/[0.08] p-2 rounded-xl inline-block">
                       <p className="text-[10px] text-slate-400">User-Submitted Bank UTR:</p>
@@ -436,7 +360,7 @@ export default function AdminPanel() {
                     </p>
                   </div>
 
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={() => handleApproveOrder(order)}
@@ -460,7 +384,6 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ─── TAB 2: PENDING REDEMPTIONS ─── */}
         {activeTab === 'redeems' && (
           <div className="space-y-3">
             {pendingRedeems.length === 0 ? (
@@ -471,7 +394,7 @@ export default function AdminPanel() {
               pendingRedeems.map((req) => (
                 <div
                   key={req.id}
-                  className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4 flex justify-between items-center"
+                  className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4 flex justify-between items-center gap-3"
                 >
                   <div>
                     <div className="flex items-center gap-2">
@@ -488,7 +411,7 @@ export default function AdminPanel() {
                       UPI ID: {req.destinationUpi || req.userUpiId || 'Not Configured'}
                     </p>
                     <p className="text-[9px] text-slate-500 mt-1">
-                      Phone: +91 {req.userPhone || 'N/A'} •{' '}
+                      {req.userPhone ? `Phone: +91 ${req.userPhone} • ` : ''}
                       {new Date(req.requestedAt).toLocaleString('en-IN')}
                     </p>
                   </div>
@@ -500,7 +423,7 @@ export default function AdminPanel() {
                       setBankUtr('');
                       setActionError('');
                     }}
-                    className="bg-[#E5C158]/15 border border-[#D4AF37]/40 text-[#E5C158] px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#E5C158]/25"
+                    className="bg-[#E5C158]/15 border border-[#D4AF37]/40 text-[#E5C158] px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#E5C158]/25 shrink-0"
                   >
                     Audit &amp; Settle
                   </button>
@@ -510,7 +433,6 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* ─── TAB 3: REGISTERED OPERATORS ─── */}
         {activeTab === 'users' && (
           <div className="space-y-3">
             {users
@@ -520,17 +442,18 @@ export default function AdminPanel() {
                   key={u.id}
                   className="bg-[#11161A] border border-white/[0.08] rounded-2xl p-4"
                 >
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between items-start gap-2">
                     <div>
                       <p className="text-sm font-bold text-white">{u.fullName || 'Operator'}</p>
                       <p className="text-xs text-slate-400">{u.email}</p>
                       <p className="text-[10px] text-[#E5C158]/80 mt-1">
-                        Active Cards: {(u.activeCards || []).join(', ') || 'None'} • UPI:{' '}
+                        Active Cards ({(u.activeCards || []).length}):{' '}
+                        {(u.activeCards || []).join(', ') || 'None'} • UPI:{' '}
                         {u.upiId || 'Incomplete'}
                       </p>
                     </div>
                     <span
-                      className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                      className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                         u.profileCompleted
                           ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                           : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
@@ -544,7 +467,6 @@ export default function AdminPanel() {
           </div>
         )}
 
-        {/* REDEMPTION MODAL WITH BANK UTR NUMBER INPUT */}
         {selectedRequest && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
             <div className="w-full max-w-md bg-[#11161A] border border-[#D4AF37]/30 rounded-3xl p-6 text-slate-200">
@@ -563,7 +485,10 @@ export default function AdminPanel() {
 
               <div className="mt-4 space-y-2 text-xs">
                 <p>
-                  Operator: <strong className="text-white">{selectedRequest.userName}</strong>
+                  Operator:{' '}
+                  <strong className="text-white">
+                    {selectedRequest.userFullName || selectedRequest.userName}
+                  </strong>
                 </p>
                 <p>
                   Unmasked UPI ID:{' '}
@@ -571,9 +496,12 @@ export default function AdminPanel() {
                     {selectedRequest.destinationUpi || selectedRequest.userUpiId}
                   </strong>
                 </p>
-                <p>
-                  Phone Number: <strong className="text-slate-200">+91 {selectedRequest.userPhone}</strong>
-                </p>
+                {selectedRequest.userPhone && (
+                  <p>
+                    Phone Number:{' '}
+                    <strong className="text-slate-200">+91 {selectedRequest.userPhone}</strong>
+                  </p>
+                )}
                 <div className="bg-[#090C0E] p-3 rounded-xl border border-white/[0.08] text-sm">
                   <p className="text-slate-400 text-xs">Net Amount to Transfer via UPI:</p>
                   <p className="text-2xl font-black text-emerald-400 font-mono mt-1 tabular-nums">
@@ -583,7 +511,7 @@ export default function AdminPanel() {
 
                 <div className="pt-2">
                   <label className="text-[10px] text-slate-400 uppercase block mb-1">
-                    Enter Bank UTR / Transaction Reference (12 digits)
+                    Enter Bank UTR / Transaction Reference (min 6 chars)
                   </label>
                   <input
                     type="text"

@@ -9,7 +9,7 @@ import {
   Info,
 } from 'lucide-react';
 
-// --- CAPITAL TIER DECK CONSTANTS ---
+// --- 5 CAPITAL CARD TIERS ---
 const DECK_CARDS = [
   {
     id: 'growth',
@@ -17,7 +17,6 @@ const DECK_CARDS = [
     tier: 'TIER II',
     capital: '₹5,000',
     rate: '4.5%',
-    active: false,
     bg: 'from-[#1E293B] via-[#131924] to-[#0A0D12]',
     border: 'border-slate-400/45',
     glow: '0 0 26px rgba(148,163,184,0.2)',
@@ -33,7 +32,6 @@ const DECK_CARDS = [
     tier: 'TIER III',
     capital: '₹10,000',
     rate: '5.5%',
-    active: false,
     bg: 'from-[#1F2429] via-[#13161A] to-[#090A0C]',
     border: 'border-zinc-400/45',
     glow: '0 0 26px rgba(161,161,170,0.2)',
@@ -49,7 +47,6 @@ const DECK_CARDS = [
     tier: 'TIER I',
     capital: '₹2,000',
     rate: '3.5%',
-    active: true,
     bg: 'from-[#062C2B] via-[#071D1E] to-[#080C0E]',
     border: 'border-emerald-400/70',
     glow: '0 0 40px rgba(16,185,129,0.36)',
@@ -65,7 +62,6 @@ const DECK_CARDS = [
     tier: 'TIER IV',
     capital: '₹50,000',
     rate: '7.0%',
-    active: false,
     bg: 'from-[#29220A] via-[#171409] to-[#0B0B08]',
     border: 'border-amber-400/50',
     glow: '0 0 26px rgba(234,179,8,0.22)',
@@ -81,7 +77,6 @@ const DECK_CARDS = [
     tier: 'TIER V',
     capital: '₹1,00,000',
     rate: '8.0%',
-    active: false,
     bg: 'from-[#2A200B] via-[#171208] to-[#0B0A08]',
     border: 'border-[#F0A818]/65',
     glow: '0 0 28px rgba(240,168,24,0.28)',
@@ -96,42 +91,42 @@ const DECK_CARDS = [
 // --- FEATURE POPOVER DETAILS ---
 const FEATURE_DETAILS = {
   'wealth-growth': {
-    badge: '3%–5% / mo',
+    badge: '3.5%–8.0% / mo',
     title: 'Live Wealth Growth',
-    desc: 'Watch your capital grow in real-time with steady 3%–5% monthly returns.',
+    desc: 'Track monthly growth projections across all 5 structured Capital Cards.',
     bullets: [
-      'Start flexibly from ₹100 or deploy through a structured Capital Card tier.',
-      'Track indicative monthly compounding and projected growth milestones directly inside your vault.',
-      'Displayed percentages are illustrative estimates governed by programme terms and market conditions.',
+      'Choose from 5 Capital Cards (Starter ₹2,000 up to Signature ₹1,00,000) with no limit on total cards.',
+      'Monitor live fluctuations and 24-month compounding projections inside your dashboard.',
+      'Displayed percentages are illustrative estimates governed by programme terms and risk policy.',
     ],
   },
   'card-tiers': {
-    badge: '5 Tiers',
-    title: '5 Premium Card Tiers',
-    desc: 'Unlock exclusive digital assets—from Starter Emerald to Signature Obsidian Gold.',
+    badge: '5 Cards • Unlimited',
+    title: '5 Capital Card Tiers',
+    desc: 'Select individual Capital Cards tailored to your capital plan.',
     bullets: [
-      'Starter (₹2,000) is live now, followed by Growth, Elite, Prime, and Signature Obsidian Gold.',
-      'Higher tiers unlock higher illustrative monthly yield rates and elevated vault privileges.',
+      'Available cards: Starter (₹2,000), Growth (₹5,000), Elite (₹10,000), Prime (₹50,000), and Signature (₹1,00,000).',
+      'Each account (one ID per email) can hold as many cards as you wish.',
     ],
   },
   'referral-bonus': {
     badge: 'Level 1 & 2',
     title: '2-Tier Referral Bonus',
-    desc: 'Expand your network and earn instant VC bonuses on every direct and indirect join.',
+    desc: 'Invite members and earn Level 1 & Level 2 referral bonuses on qualifying card activations.',
     bullets: [
       'Share your unique invite link to earn Level 1 bonuses on direct joins and Level 2 bonuses on indirect joins.',
-      'Referral VC credits reflect transparently inside your Network & Vault ledger upon qualifying activation.',
-      'Subject to fair-use anti-abuse checks and active node verification rules.',
+      'Referral rewards credit transparently after audit verification.',
+      'Subject to fair-use anti-abuse checks and active account rules.',
     ],
   },
   'profit-sharing': {
     badge: '50/50 Split',
     title: 'Transparent Profit Sharing',
-    desc: 'Enjoy a 50/50 profit split with zero hidden fees and 100% admin-verified payouts.',
+    desc: '50/50 profit sharing with zero hidden fees and 2–48h admin-verified UPI payouts.',
     bullets: [
-      'Realised positive yield is shared transparently: 50% to you and 50% to VYOM Network.',
-      'Zero hidden maintenance deductions—every credit, split, and settlement is recorded in your ledger.',
-      'All deposit UTRs and UPI payout requests undergo 100% admin verification within 2–48 hours.',
+      'Profit is shared transparently: 50% to you and 50% to VYOM Network.',
+      'Every card order, UTR check, and payout is recorded in your ledger.',
+      'Approved UPI withdrawals process within 2 to 48 hours.',
     ],
   },
 };
@@ -141,18 +136,18 @@ const LEGAL_DETAILS = {
   terms: {
     badge: 'Legal',
     title: 'Terms of Service',
-    desc: 'Programme eligibility, deposit nodes, and verification rules.',
+    desc: 'Account rules, card portfolio, and settlement windows.',
     bullets: [
-      'Custom micro-deposits start at ₹100. Currently only the Starter Card (₹2,000) is active; higher tiers are launching soon.',
-      'All deposits require valid UTR verification. Approved UPI settlement requests are processed within 2 to 48 hours.',
+      'One account per email address. Capital is deployed via the 5 Capital Cards with no limit on how many cards you can buy.',
+      'All card activations require valid UTR verification. Approved UPI settlement requests process within 2 to 48 hours.',
     ],
   },
   privacy: {
     badge: 'Privacy',
     title: 'Privacy Policy',
-    desc: 'How your VYOM Network account and vault metadata are protected.',
+    desc: 'How your VYOM Network account and dashboard details are protected.',
     bullets: [
-      'We store your name, email, referral metadata, and optional UPI/phone details solely to operate your VYOM Vault and process payouts.',
+      'We store your name, email, referral metadata, and optional UPI/phone details solely to operate your VYOM account and process payouts.',
       'Authentication and ledger records are secured via Firebase Authentication and Firestore security rules.',
     ],
   },
@@ -161,19 +156,17 @@ const LEGAL_DETAILS = {
     title: 'Risk Disclosure',
     desc: 'Important capital risk and profit-sharing disclosures.',
     bullets: [
-      'Displayed monthly percentages are illustrative estimates, not guaranteed returns. Capital deployed is subject to programme terms and risk.',
-      'At eligible profit redemption, realised positive yield is allocated 50% to the user and 50% to VYOM Network.',
+      'Displayed monthly percentages are illustrative estimates, not guaranteed returns. Capital deployed carries risk.',
+      'At eligible profit withdrawal, profit is allocated 50% to the user and 50% to VYOM Network.',
     ],
   },
 };
 
 export default function WelcomePage({ authContext, refCode }) {
-  // Active card and auth reveal state
   const [activeCardId, setActiveCardId] = useState('starter');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('signup');
 
-  // Form input states
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -181,7 +174,6 @@ export default function WelcomePage({ authContext, refCode }) {
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Popover modal and toast notification states
   const [modalData, setModalData] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
@@ -189,7 +181,6 @@ export default function WelcomePage({ authContext, refCode }) {
   const selectedCard =
     DECK_CARDS.find((card) => card.id === activeCardId) || DECK_CARDS[2];
 
-  // Close open modal or tuck auth card back on Escape
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key !== 'Escape') return;
@@ -203,14 +194,12 @@ export default function WelcomePage({ authContext, refCode }) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [modalData, isAuthOpen]);
 
-  // Display temporary toast message without blocking UI
   const showToastMsg = (msg) => {
     setToastMessage(msg);
     setShowToast(true);
     setTimeout(() => setShowToast(false), 3000);
   };
 
-  // Reveal auth card from behind the fanned deck and scroll into view
   const revealAuthFromDeck = (mode = 'signup') => {
     setAuthMode(mode);
     setIsAuthOpen(true);
@@ -221,19 +210,16 @@ export default function WelcomePage({ authContext, refCode }) {
     }, 100);
   };
 
-  // Tuck auth card back behind the fanned deck
   const closeAuthToDeck = () => {
     setIsAuthOpen(false);
   };
 
-  // Switch between sign-up and sign-in while clearing password fields
   const switchAuthMode = (mode) => {
     setAuthMode(mode);
     setPassword('');
     setConfirmPassword('');
   };
 
-  // Handle email/password sign-up and sign-in with null-safe authContext guards
   const handleDemoSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -266,7 +252,6 @@ export default function WelcomePage({ authContext, refCode }) {
     }
   };
 
-  // Handle Google sign-in with null-safe guard
   const handleGoogle = async () => {
     if (loading) return;
     if (typeof authContext?.loginWithGoogle !== 'function') {
@@ -295,12 +280,10 @@ export default function WelcomePage({ authContext, refCode }) {
 
   return (
     <div className="min-h-screen bg-[#090D0C] text-white font-sans antialiased selection:bg-[#D4AF37] selection:text-black pb-28 overflow-x-hidden relative">
-      {/* Ambient Emerald & Golden Radial Glows */}
       <div className="fixed -top-28 left-1/2 -translate-x-1/2 w-[min(92vw,460px)] h-64 bg-emerald-500/[0.10] blur-[105px] rounded-full pointer-events-none z-0" />
       <div className="fixed top-24 left-1/2 -translate-x-1/2 w-[340px] h-[220px] bg-[#D4AF37]/[0.08] blur-[100px] rounded-full pointer-events-none z-0" />
 
       <main className="max-w-md mx-auto px-4 pt-6 relative z-10">
-        {/* 1. TOP BRAND BAR */}
         <header className="flex items-center justify-between border-b border-white/[0.07] pb-3 mb-5">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#D4AF37]/55 bg-gradient-to-br from-[#F6D978] via-[#C99A22] to-[#76520C] shadow-[0_0_24px_rgba(212,175,55,0.22),inset_0_1px_1px_rgba(255,255,255,0.45)]">
@@ -328,20 +311,18 @@ export default function WelcomePage({ authContext, refCode }) {
           </button>
         </header>
 
-        {/* 2. EDITORIAL HERO HEADLINE */}
         <section className="text-center mb-3">
           <p className="text-[8px] font-bold uppercase tracking-[0.30em] text-[#D4AF37]">
-            A smarter way to plan your capital journey
+            Structured Capital Cards • One ID Per Email
           </p>
           <h2 className="mt-1 text-[clamp(26px,7vw,32px)] font-bold leading-[1.06] tracking-[-0.035em] text-white">
             Your Goals. <span className="text-[#E5C158]">Your Growth.</span>
           </h2>
           <p className="mx-auto mt-1.5 max-w-[330px] text-[11px] leading-snug text-[#A6B0AA]">
-            Apne goals ke hisaab se capital options samjhein aur soch-samajhkar aage badhein.
+            Apne goals ke hisaab se capital card chunein aur step-by-step aage badhein.
           </p>
         </section>
 
-        {/* 3. INTERACTIVE STAGE: 5 FANNED CARDS + EMERGING AUTH FORM */}
         <section
           id="stage-section"
           className="relative flex flex-col items-center justify-center pt-2 pb-1"
@@ -355,7 +336,6 @@ export default function WelcomePage({ authContext, refCode }) {
             }}
             className="relative w-full flex items-center justify-center transition-[height] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
           >
-            {/* LAYER A: AUTH FORM */}
             <div
               id="auth-layer"
               style={{
@@ -393,8 +373,8 @@ export default function WelcomePage({ authContext, refCode }) {
                 </h3>
                 <p className="text-[10px] text-[#9AA69D] mt-0.5">
                   {authMode === 'signup'
-                    ? 'Create your account to access your VYOM Vault'
-                    : 'Sign in to access your VYOM Vault'}
+                    ? 'Create your account to access your VYOM Dashboard'
+                    : 'Sign in to access your VYOM Dashboard'}
                 </p>
               </div>
 
@@ -508,7 +488,6 @@ export default function WelcomePage({ authContext, refCode }) {
               </p>
             </div>
 
-            {/* LAYER B: 5 FANNED CARDS DECK */}
             <div
               id="deck-layer"
               style={{
@@ -546,15 +525,9 @@ export default function WelcomePage({ authContext, refCode }) {
                         >
                           {card.tier}
                         </span>
-                        {card.active ? (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-400/15 border border-emerald-400/35 text-[7px] font-extrabold uppercase tracking-wider text-emerald-300">
-                            Active
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded bg-white/[0.06] text-[7px] font-bold uppercase tracking-wider text-zinc-400">
-                            Soon
-                          </span>
-                        )}
+                        <span className="w-4 h-4 rounded bg-white/[0.06] flex items-center justify-center text-[9px] font-black text-[#F0A818]">
+                          V
+                        </span>
                       </div>
                       <div className="my-auto">
                         <p className={`text-sm font-extrabold tracking-tight ${card.textAccent}`}>
@@ -576,25 +549,12 @@ export default function WelcomePage({ authContext, refCode }) {
           </div>
 
           <p className="mt-2 min-h-[14px] text-center text-[10px] leading-tight text-[#A6B0AA]">
-            {selectedCard?.active ? (
-              <>
-                <span className="font-bold text-emerald-300">{selectedCard.name}</span> (
-                {selectedCard.capital}) is{' '}
-                <span className="font-semibold text-white">currently active</span> · Est.{' '}
-                {selectedCard.rate}/mo
-              </>
-            ) : (
-              <>
-                <span className="font-bold text-white">{selectedCard?.name} Tier</span>{' '}
-                launching soon —{' '}
-                <span className="font-semibold text-emerald-300">Starter (₹2,000)</span> is
-                currently active
-              </>
-            )}
+            <span className={`font-bold ${selectedCard?.textAccent}`}>{selectedCard?.name}</span>{' '}
+            ({selectedCard?.capital}) · Est.{' '}
+            <span className="font-semibold text-white">{selectedCard?.rate}/mo</span>
           </p>
         </section>
 
-        {/* 4. MIDDLE ACTION BAR */}
         <div className="my-4 flex items-center gap-2 relative z-30">
           <button
             type="button"
@@ -605,19 +565,16 @@ export default function WelcomePage({ authContext, refCode }) {
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
           <div className="min-h-[42px] flex items-center rounded-xl border border-white/[0.09] bg-white/[0.035] px-3 text-[9px] font-semibold text-[#C6CFC8] shrink-0">
-            <span className="text-emerald-300">1 Active</span>
+            <span className="text-[#E5C158]">5 Cards</span>
             <span className="mx-1.5 text-[#68736B]">•</span>
-            <span>4 Soon</span>
+            <span>No Limit</span>
           </div>
         </div>
 
-        {/* 5. FLEXIBLE START INFO STRIP */}
         <div className="mb-4 rounded-xl border border-[#D4AF37]/20 bg-[#D4AF37]/[0.06] px-3 py-2 text-center text-[10px] leading-tight text-[#DCCB9A]">
-          Start flexibly from <strong className="text-white">₹100</strong> · Choose a card tier
-          and track your capital journey.
+          Card-only capital selection · Buy <strong className="text-white">as many cards</strong> as you want
         </div>
 
-        {/* 6. FOUR FEATURE CARDS */}
         <section aria-label="VYOM Key Features" className="grid grid-cols-2 gap-2.5 relative z-10">
           <article className="flex flex-col rounded-xl border border-white/[0.09] bg-gradient-to-br from-[#14221B] to-[#101613] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             <div className="flex items-start justify-between gap-1.5">
@@ -639,10 +596,10 @@ export default function WelcomePage({ authContext, refCode }) {
               </button>
             </div>
             <span className="mt-2 w-fit rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[8px] font-extrabold uppercase tracking-wide text-emerald-300">
-              3%–5% / mo
+              3.5%–8.0% / mo
             </span>
             <p className="mt-1.5 text-[9.5px] leading-[1.38] text-[#AAB4AD]">
-              Watch your capital grow in real-time with steady 3%–5% monthly returns.
+              Track live monthly projections across structured Capital Cards.
             </p>
           </article>
 
@@ -653,23 +610,23 @@ export default function WelcomePage({ authContext, refCode }) {
                   <Layers className="h-3.5 w-3.5" />
                 </span>
                 <h3 className="text-[10px] font-bold leading-tight text-white">
-                  5 Premium Card Tiers
+                  5 Capital Card Tiers
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => openFeatureModal('card-tiers')}
-                aria-label="More details about 5 Premium Card Tiers"
+                aria-label="More details about 5 Capital Card Tiers"
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/15 text-[#A8B2AA] transition hover:border-[#D4AF37]/60 hover:text-white"
               >
                 <Info className="h-3 w-3" />
               </button>
             </div>
             <span className="mt-2 w-fit rounded-full border border-[#F0A818]/30 bg-[#F0A818]/10 px-2 py-0.5 text-[8px] font-extrabold uppercase tracking-wide text-[#F0A818]">
-              5 Tiers
+              5 Cards • Unlimited
             </span>
             <p className="mt-1.5 text-[9.5px] leading-[1.38] text-[#AAB4AD]">
-              Unlock exclusive digital assets—from Starter Emerald to Signature Obsidian Gold.
+              Select Starter, Growth, Elite, Prime, or Signature cards anytime.
             </p>
           </article>
 
@@ -696,7 +653,7 @@ export default function WelcomePage({ authContext, refCode }) {
               Level 1 &amp; 2
             </span>
             <p className="mt-1.5 text-[9.5px] leading-[1.38] text-[#AAB4AD]">
-              Expand your network and earn instant VC bonuses on every direct and indirect join.
+              Earn Level 1 and Level 2 referral bonuses on qualifying activations.
             </p>
           </article>
 
@@ -723,12 +680,11 @@ export default function WelcomePage({ authContext, refCode }) {
               50/50 Split
             </span>
             <p className="mt-1.5 text-[9.5px] leading-[1.38] text-[#AAB4AD]">
-              Enjoy a 50/50 profit split with zero hidden fees and 100% admin-verified payouts.
+              50/50 profit split with zero hidden fees and 2–48h UPI payouts.
             </p>
           </article>
         </section>
 
-        {/* 7. MINIMAL FOOTER */}
         <footer className="mt-6 pt-4 border-t border-white/[0.08] text-center space-y-2">
           <div className="flex justify-center gap-2 text-[10px] text-[#AAB4AD]">
             <button
@@ -759,7 +715,6 @@ export default function WelcomePage({ authContext, refCode }) {
         </footer>
       </main>
 
-      {/* 8. FIXED BOTTOM CTA (Hidden when Auth Form is open) */}
       <div
         className={`fixed bottom-0 left-0 right-0 z-40 bg-[#090D0C]/95 backdrop-blur-xl border-t border-white/[0.07] p-3.5 transition-opacity duration-300 ${
           isAuthOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
@@ -776,7 +731,6 @@ export default function WelcomePage({ authContext, refCode }) {
         </div>
       </div>
 
-      {/* 9. INFO / LEGAL MODAL */}
       {modalData && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
@@ -812,7 +766,6 @@ export default function WelcomePage({ authContext, refCode }) {
         </div>
       )}
 
-      {/* 10. TOAST NOTIFICATION */}
       <div
         className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#101714] border border-[#D4AF37] text-[#F0A818] px-4 py-2 rounded-full text-xs font-bold shadow-2xl transition-all duration-300 whitespace-nowrap ${
           showToast
