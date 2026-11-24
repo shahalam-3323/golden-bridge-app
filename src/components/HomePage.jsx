@@ -18,6 +18,12 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
+// ==========================================
+// PAYMENT DETAILS (Yahan apni UPI daali hai)
+// ==========================================
+const VYOM_PAYMENT_UPI = '9808669522@ybl';
+const VYOM_PAYEE_NAME = 'SHAH ALAM ANSARI';
+
 const DEFAULT_TIERS = [
   {
     id: 'starter',
@@ -875,7 +881,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/35 bg-[#101714] p-5 space-y-4 shadow-2xl"
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/35 bg-[#101714] p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-start justify-between border-b border-white/[0.08] pb-3">
               <div>
@@ -914,22 +920,51 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
             </div>
 
             <form onSubmit={handleSubmitCardOrder} className="space-y-3">
-              <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3 text-[11px] text-zinc-300 space-y-1">
-                <p>
-                  Card Amount:{' '}
-                  <strong className="text-white">{formatINR(cardModalTier.capital, 0)}</strong>
-                </p>
-                <p>
-                  Monthly Rate:{' '}
-                  <strong className="text-emerald-300">
-                    {(cardModalTier.rate * 100).toFixed(1)}% / month
-                  </strong>
-                </p>
-                <p className="text-[10px] text-zinc-400">
-                  Pay {formatINR(cardModalTier.capital, 0)} via UPI/Bank transfer and enter your
-                  12-digit UTR below for verification (2–48h).
-                </p>
+              
+              {/* === NAYA PAYMENT & QR CODE BOX === */}
+              <div className="rounded-xl bg-emerald-500/[0.06] border border-emerald-400/30 p-3 space-y-3">
+                <div className="text-center">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 mb-1">
+                    Step 1: Pay {formatINR(cardModalTier.capital, 0)}
+                  </p>
+                  <p className="text-[10px] text-zinc-400">
+                    Scan QR or send to UPI ID below
+                  </p>
+                </div>
+
+                <div className="flex justify-center bg-white p-2 rounded-xl w-fit mx-auto shadow-md">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+                      `upi://pay?pa=${VYOM_PAYMENT_UPI}&pn=${VYOM_PAYEE_NAME}&am=${cardModalTier.capital}&cu=INR`
+                    )}`}
+                    alt="Payment QR"
+                    className="w-[130px] h-[130px]"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2 bg-[#090E0C] rounded-lg px-2.5 py-2 border border-white/[0.08]">
+                  <div className="min-w-0">
+                    <p className="text-[8px] text-zinc-500 uppercase">UPI ID</p>
+                    <p className="font-mono font-extrabold text-white text-sm truncate">{VYOM_PAYMENT_UPI}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(VYOM_PAYMENT_UPI);
+                      triggerHaptic('light');
+                      showToast('UPI ID copied');
+                    }}
+                    className="shrink-0 text-[10px] font-bold text-[#17130A] px-3 py-1.5 rounded-lg bg-[#F1D77A] active:scale-95 transition"
+                  >
+                    Copy
+                  </button>
+                </div>
+
+                <div className="text-center text-[10px] text-[#F1D77A] font-bold border-t border-white/[0.08] pt-2">
+                  Step 2: Enter UTR below
+                </div>
               </div>
+              {/* === NAYA PAYMENT & QR CODE BOX END === */}
 
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">
