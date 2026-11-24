@@ -162,6 +162,7 @@ export const AuthProvider = ({ children }) => {
 
     const newOrder = {
       orderId,
+      type: 'card_purchase',
       cardId: tierMeta.id,
       cardName: tierMeta.name,
       amount: Number(tierMeta.capital) || 2000,
