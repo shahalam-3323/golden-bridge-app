@@ -19,10 +19,11 @@ import {
 } from 'lucide-react';
 
 // ==========================================
-// PAYMENT DETAILS (Yahan apni UPI daali hai)
+// PAYMENT DETAILS
 // ==========================================
 const VYOM_PAYMENT_UPI = '9808669522@ybl';
 const VYOM_PAYEE_NAME = 'SHAH ALAM ANSARI';
+const CART_STORAGE_KEY = 'vyom_cart_checkout_v1';
 
 const DEFAULT_TIERS = [
   {
@@ -115,12 +116,19 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
   const [policyTab, setPolicyTab] = useState('terms');
 
-  // Card Purchase Modal State
+  // Card Checkout Cart & UTR Recovery State (QR hidden; UPI Intent + Copy fallback)
   const [isCardModalOpen, setIsCardModalOpen] = useState(false);
-  const [cardModalTier, setCardModalTier] = useState(DEFAULT_TIERS[0]);
+  const [cartQuantities, setCartQuantities] = useState({
+    starter: 0,
+    growth: 0,
+    elite: 0,
+    prime: 0,
+    signature: 0,
+  });
   const [utrInput, setUtrInput] = useState('');
   const [cardOrderLoading, setCardOrderLoading] = useState(false);
   const [cardOrderError, setCardOrderError] = useState('');
+  const [pendingInspectItem, setPendingInspectItem] = useState(null);
 
   // UPI Withdrawal Modal State
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
@@ -156,6 +164,44 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
       setWithdrawUpi(activeProfile.upiId);
     }
   }, [activeProfile?.upiId, withdrawUpi]);
+
+  // Restore saved cart / UTR if user returned after opening UPI app or app restart
+  useEffect(() => {
+    try {
+      const savedRaw = localStorage.getItem(CART_STORAGE_KEY);
+      if (!savedRaw) return;
+      const saved = JSON.parse(savedRaw);
+      if (saved?.quantities && typeof saved.quantities === 'object') {
+        setCartQuantities((prev) => ({ ...prev, ...saved.quantities }));
+      }
+      if (typeof saved?.utr === 'string' && saved.utr) {
+        setUtrInput(saved.utr);
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+  }, []);
+
+  // Persist cart & draft UTR so user never loses progress mid-payment
+  useEffect(() => {
+    try {
+      const hasAnyQty = Object.values(cartQuantities).some((q) => (Number(q) || 0) > 0);
+      if (!hasAnyQty && !utrInput) {
+        localStorage.removeItem(CART_STORAGE_KEY);
+        return;
+      }
+      localStorage.setItem(
+        CART_STORAGE_KEY,
+        JSON.stringify({
+          quantities: cartQuantities,
+          utr: utrInput,
+          updatedAt: Date.now(),
+        })
+      );
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [cartQuantities, utrInput]);
 
   const triggerHaptic = (style = 'light') => {
     try {
@@ -219,6 +265,116 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
   }, [activeProfile?.pendingPurchases]);
 
   const totalOwnedCards = ownedCardIds.length;
+
+  // Build individual card entries (both Approval Pending and Active) for portfolio & cards tab
+  const portfolioCards = useMemo(() => {
+    const pendingList = Array.isArray(activeProfile?.pendingPurchases)
+      ? activeProfile.pendingPurchases
+      : [];
+    const instances = Array.isArray(activeProfile?.activeCardInstances)
+      ? activeProfile.activeCardInstances
+      : [];
+
+    const cards = [];
+
+    // 1. Pending orders appear immediately with "Approval Pending" badge
+    pendingList
+      .filter((ord) => ord?.status === 'pending')
+      .forEach((ord) => {
+        const items =
+          Array.isArray(ord.items) && ord.items.length > 0
+            ? ord.items
+            : [
+                {
+                  cardId: ord.cardId || 'starter',
+                  cardName: ord.cardName || 'Starter',
+                  capital: Number(ord.amount) || 2000,
+                  monthlyRate: Number(ord.lockedRate) || 0.035,
+                  qty: 1,
+                },
+              ];
+
+        items.forEach((it, itemIdx) => {
+          const tierMeta = tiers.find((t) => t.id === it.cardId) || tiers[0];
+          const count = Math.max(1, Number(it.qty) || 1);
+          for (let c = 0; c < count; c++) {
+            cards.push({
+              uid: `${ord.orderId}-${itemIdx}-${c}`,
+              cardId: tierMeta.id,
+              name: tierMeta.name,
+              badge: tierMeta.badge,
+              capital: Number(it.capital) || tierMeta.capital,
+              rate: Number(it.monthlyRate) || tierMeta.rate,
+              gradient: tierMeta.gradient,
+              border: tierMeta.border,
+              accent: tierMeta.accent,
+              status: 'pending',
+              orderId: ord.orderId,
+              bankUtr: ord.bankUtr || '',
+              requestedAt: ord.requestedAt,
+              totalOrderAmount: Number(ord.amount) || tierMeta.capital,
+            });
+          }
+        });
+      });
+
+    // 2. Active card instances (if available) or fallback to activeCards array
+    if (instances.length > 0) {
+      instances.forEach((inst, i) => {
+        const tierMeta = tiers.find((t) => t.id === inst.cardId) || tiers[0];
+        cards.push({
+          uid: inst.instanceId || `active-inst-${i}`,
+          cardId: tierMeta.id,
+          name: inst.name || tierMeta.name,
+          badge: tierMeta.badge,
+          capital: Number(inst.capital) || tierMeta.capital,
+          rate: Number(inst.rate) || tierMeta.rate,
+          gradient: tierMeta.gradient,
+          border: tierMeta.border,
+          accent: tierMeta.accent,
+          status: 'active',
+          activatedAt: inst.activatedAt || activeProfile?.cardActivatedAt?.[tierMeta.id] || null,
+        });
+      });
+    } else {
+      ownedCardIds.forEach((cid, i) => {
+        const tierMeta = tiers.find((t) => t.id === cid) || tiers[0];
+        cards.push({
+          uid: `active-card-${cid}-${i}`,
+          cardId: tierMeta.id,
+          name: tierMeta.name,
+          badge: tierMeta.badge,
+          capital: tierMeta.capital,
+          rate: tierMeta.rate,
+          gradient: tierMeta.gradient,
+          border: tierMeta.border,
+          accent: tierMeta.accent,
+          status: 'active',
+          activatedAt: activeProfile?.cardActivatedAt?.[tierMeta.id] || null,
+        });
+      });
+    }
+
+    return cards;
+  }, [activeProfile, tiers, ownedCardIds]);
+
+  const cartSummary = useMemo(() => {
+    const items = tiers
+      .map((tier) => {
+        const qty = Math.max(0, parseInt(cartQuantities[tier.id] ?? 0, 10) || 0);
+        return {
+          tier,
+          qty,
+          subtotal: qty * tier.capital,
+        };
+      })
+      .filter((row) => row.qty > 0);
+
+    const totalItems = items.reduce((sum, row) => sum + row.qty, 0);
+    const totalAmount = items.reduce((sum, row) => sum + row.subtotal, 0);
+
+    return { items, totalItems, totalAmount };
+  }, [tiers, cartQuantities]);
 
   const baseCapital = useMemo(() => {
     const direct = Number(
@@ -371,6 +527,8 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
         setCopiedCode(true);
         setTimeout(() => setCopiedCode(false), 1800);
         showToast('Invite code copied');
+      } else if (type === 'upi') {
+        showToast('UPI ID copied');
       } else {
         setCopiedLink(true);
         setTimeout(() => setCopiedLink(false), 1800);
@@ -396,15 +554,54 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
     }
   };
 
-  const handleOpenCardOrder = (tier = null) => {
-    triggerHaptic('medium');
-    const targetTier = tier || tiers.find((t) => t.id === selectedCardId) || tiers[0];
-    if (typeof onOpenDeposit === 'function') {
-      onOpenDeposit(targetTier);
+  const updateCartQty = (tierId, delta) => {
+    triggerHaptic('light');
+    setCartQuantities((prev) => {
+      const current = Math.max(0, parseInt(prev[tierId] ?? 0, 10) || 0);
+      const next = Math.max(0, Math.min(20, current + delta));
+      return { ...prev, [tierId]: next };
+    });
+  };
+
+  const handleLaunchUpiIntent = () => {
+    if (cartSummary.totalAmount <= 0) {
+      setCardOrderError('Please add at least one card to your cart before paying.');
       return;
     }
-    setCardModalTier(targetTier);
-    setUtrInput('');
+    triggerHaptic('medium');
+    setCardOrderError('');
+    const upiIntentUrl = `upi://pay?pa=${encodeURIComponent(
+      VYOM_PAYMENT_UPI
+    )}&pn=${encodeURIComponent(VYOM_PAYEE_NAME)}&am=${encodeURIComponent(
+      String(cartSummary.totalAmount)
+    )}&cu=INR`;
+
+    try {
+      window.location.href = upiIntentUrl;
+    } catch {
+      copyText(VYOM_PAYMENT_UPI, 'upi');
+    }
+  };
+
+  const handleOpenCardOrder = (tier = null, ensureTierSelected = false) => {
+    triggerHaptic('medium');
+    if (typeof onOpenDeposit === 'function') {
+      onOpenDeposit(tier);
+      return;
+    }
+    if (tier?.id) {
+      setCartQuantities((prev) => {
+        if (ensureTierSelected) {
+          return {
+            ...prev,
+            [tier.id]: Math.max(1, parseInt(prev[tier.id] ?? 0, 10) || 0),
+          };
+        }
+        const hasExisting = Object.values(prev).some((q) => (Number(q) || 0) > 0);
+        if (hasExisting) return prev;
+        return { ...prev, [tier.id]: 1 };
+      });
+    }
     setCardOrderError('');
     setIsCardModalOpen(true);
   };
@@ -414,7 +611,13 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
     if (cardOrderLoading) return;
     setCardOrderError('');
 
-    if (utrInput.trim().length < 6) {
+    if (cartSummary.items.length === 0) {
+      setCardOrderError('Please select at least one card in your cart.');
+      return;
+    }
+
+    const cleanUtr = utrInput.trim();
+    if (cleanUtr.length < 6) {
       setCardOrderError('Please enter a valid UTR / Transaction ID (min 6 characters).');
       return;
     }
@@ -426,14 +629,22 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
 
     setCardOrderLoading(true);
     try {
-      const res = await submitCardOrder(cardModalTier, utrInput.trim());
+      const res = await submitCardOrder(cartSummary.items, cleanUtr);
       if (res?.error) {
         setCardOrderError(res.error);
       } else {
         triggerHaptic('medium');
         setIsCardModalOpen(false);
         setUtrInput('');
-        showToast(`${cardModalTier.name} Card order submitted for review!`);
+        setCartQuantities({
+          starter: 0,
+          growth: 0,
+          elite: 0,
+          prime: 0,
+          signature: 0,
+        });
+        localStorage.removeItem(CART_STORAGE_KEY);
+        showToast('Order submitted — card added with Approval Pending');
       }
     } catch (err) {
       setCardOrderError(err?.message || 'Could not submit card order.');
@@ -640,7 +851,10 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
                     Ready to Withdraw: {formatINR(withdrawableBalance, 0)}
                   </p>
                   <p className="text-[10px] text-[#B9C2BC] truncate">
-                    Direct UPI payout • 2–48 hours
+                    {pendingCardOrdersCount > 0
+                      ? `${pendingCardOrdersCount} order(s) under 2–48h audit • `
+                      : ''}
+                    Direct UPI payout • 2–48h
                   </p>
                 </div>
               </div>
@@ -668,18 +882,66 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
         )}
 
         {activeTab === 'cards' && (
-          <div className="flex flex-col justify-between h-full max-h-[530px] py-1 space-y-3">
+          <div className="flex flex-col justify-between h-full max-h-[530px] py-1 space-y-3 overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-extrabold text-white">Capital Cards</h2>
+                <h2 className="text-sm font-extrabold text-white">Capital Cards Portfolio</h2>
                 <p className="text-[10px] text-[#9AA69D]">
-                  Choose from 5 cards • Buy as many as you want
+                  Tap any pending card to check 2–48h bank verification status
                 </p>
               </div>
               <span className="rounded-full border border-[#D4AF37]/35 bg-[#D4AF37]/10 px-2.5 py-0.5 text-[9px] font-bold text-[#F1D77A] font-mono">
-                {totalOwnedCards} Active
+                {totalOwnedCards} Active{pendingCardOrdersCount > 0 ? ` • ${pendingCardOrdersCount} Pending` : ''}
               </span>
             </div>
+
+            {portfolioCards.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+                  Your Cards ({portfolioCards.length})
+                </p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {portfolioCards.map((pc) => {
+                    const isPending = pc.status === 'pending';
+                    return (
+                      <button
+                        key={pc.uid}
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic('light');
+                          setSelectedCardId(pc.cardId);
+                          if (isPending) setPendingInspectItem(pc);
+                        }}
+                        className={`shrink-0 rounded-xl border p-2.5 text-left min-w-[148px] transition active:scale-95 ${
+                          isPending
+                            ? 'border-amber-400/50 bg-amber-500/[0.08]'
+                            : 'border-emerald-400/40 bg-emerald-500/[0.07]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-xs font-extrabold text-white">{pc.name}</span>
+                          <span
+                            className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                              isPending
+                                ? 'bg-amber-400/20 text-amber-300 border border-amber-400/35'
+                                : 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/35'
+                            }`}
+                          >
+                            {isPending ? 'Approval Pending' : 'Active'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-mono font-bold text-zinc-200 mt-1">
+                          {formatINR(pc.capital, 0)}
+                        </p>
+                        <p className="text-[9px] text-zinc-400 mt-0.5">
+                          {isPending ? 'Tap for verification info' : `${(pc.rate * 100).toFixed(1)}% / mo`}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-2.5 overflow-x-auto pb-1 snap-x">
               {tiers.map((card) => {
@@ -693,7 +955,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
                       triggerHaptic('light');
                       setSelectedCardId(card.id);
                     }}
-                    className={`snap-start shrink-0 w-[132px] h-[152px] rounded-2xl bg-gradient-to-b ${card.gradient} border ${
+                    className={`snap-start shrink-0 w-[132px] h-[144px] rounded-2xl bg-gradient-to-b ${card.gradient} border ${
                       isSelected ? 'border-[#D4AF37] ring-1 ring-[#D4AF37]/50' : card.border
                     } p-3 flex flex-col justify-between text-left transition active:scale-95`}
                   >
@@ -706,7 +968,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
                       </span>
                       {isOwned && (
                         <span className="px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-300 text-[7px] font-extrabold">
-                          OWNED
+                          ACTIVE
                         </span>
                       )}
                     </div>
@@ -747,10 +1009,10 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
 
               <button
                 type="button"
-                onClick={() => handleOpenCardOrder(inspectedCard)}
+                onClick={() => handleOpenCardOrder(inspectedCard, true)}
                 className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold text-xs active:scale-[0.98] transition"
               >
-                Buy {inspectedCard.name} Card ({formatINR(inspectedCard.capital, 0)})
+                Add {inspectedCard.name} to Cart ({formatINR(inspectedCard.capital, 0)})
               </button>
             </div>
           </div>
@@ -872,7 +1134,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
       </nav>
 
       {/* ===================================================================== */}
-      {/* 4. BUY CAPITAL CARD & UTR SUBMISSION MODAL                            */}
+      {/* 4. E-COMMERCE MULTI-CARD CART + UPI INTENT + UTR RECOVERY MODAL       */}
       {/* ===================================================================== */}
       {isCardModalOpen && (
         <div
@@ -881,16 +1143,15 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/35 bg-[#101714] p-5 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/35 bg-[#101714] p-5 space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-start justify-between border-b border-white/[0.08] pb-3">
               <div>
                 <span className="text-[9px] font-extrabold uppercase tracking-wider text-[#E5C158]">
-                  Buy Capital Card{' '}
-                  {pendingCardOrdersCount > 0 ? `(${pendingCardOrdersCount} Pending)` : ''}
+                  Card Cart Checkout • {cartSummary.totalItems} Card(s)
                 </span>
                 <h3 className="text-sm font-extrabold text-white mt-0.5">
-                  {cardModalTier.name} Card • {formatINR(cardModalTier.capital, 0)}
+                  Total Payable: {formatINR(cartSummary.totalAmount, 0)}
                 </h3>
               </div>
               <button
@@ -902,70 +1163,89 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
               </button>
             </div>
 
-            <div className="flex gap-1.5 overflow-x-auto pb-1">
-              {tiers.map((t) => (
+            {/* Multi-Card Selector Cart */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                Select Cards for Your Cart
+              </p>
+              <div className="space-y-1.5 max-h-40 overflow-y-auto pr-0.5">
+                {tiers.map((t) => {
+                  const qty = cartQuantities[t.id] || 0;
+                  return (
+                    <div
+                      key={t.id}
+                      className={`flex items-center justify-between rounded-xl border px-3 py-2 ${
+                        qty > 0
+                          ? 'border-[#D4AF37]/45 bg-[#D4AF37]/[0.08]'
+                          : 'border-white/[0.07] bg-[#090E0C]'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-white truncate">
+                          {t.name}{' '}
+                          <span className="text-[10px] text-zinc-400 font-mono">
+                            ({formatINR(t.capital, 0)})
+                          </span>
+                        </p>
+                        <p className="text-[9px] text-emerald-300 font-mono">
+                          {(t.rate * 100).toFixed(1)}% / mo
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => updateCartQty(t.id, -1)}
+                          className="w-6 h-6 rounded-lg bg-white/[0.07] text-white font-bold text-xs flex items-center justify-center active:scale-95"
+                        >
+                          −
+                        </button>
+                        <span className="w-5 text-center font-mono text-xs font-extrabold text-white">
+                          {qty}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => updateCartQty(t.id, 1)}
+                          className="w-6 h-6 rounded-lg bg-[#D4AF37] text-[#17130A] font-black text-xs flex items-center justify-center active:scale-95"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Direct UPI Intent Button (QR hidden; opens UPI payment app list with total amount) */}
+            <div className="rounded-xl bg-[#090E0C] border border-emerald-400/25 p-3 space-y-2">
+              <button
+                type="button"
+                onClick={handleLaunchUpiIntent}
+                className="w-full py-2.5 px-3 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold text-xs flex items-center justify-center gap-1.5 active:scale-[0.98] transition"
+              >
+                <ArrowUpRight className="w-4 h-4" />
+                <span>Pay {formatINR(cartSummary.totalAmount, 0)} with UPI</span>
+              </button>
+
+              <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-0.5">
+                <span className="truncate">
+                  UPI: <strong className="font-mono text-zinc-200">{VYOM_PAYMENT_UPI}</strong>
+                </span>
                 <button
-                  key={t.id}
                   type="button"
-                  onClick={() => setCardModalTier(t)}
-                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold shrink-0 border transition ${
-                    cardModalTier.id === t.id
-                      ? 'border-[#D4AF37] bg-[#D4AF37]/15 text-[#F1D77A]'
-                      : 'border-white/10 bg-white/[0.03] text-zinc-400'
-                  }`}
+                  onClick={() => copyText(VYOM_PAYMENT_UPI, 'upi')}
+                  className="text-[#E5C158] font-bold hover:underline shrink-0"
                 >
-                  {t.name} ({formatINR(t.capital, 0)})
+                  Copy UPI ID
                 </button>
-              ))}
+              </div>
+              <p className="text-[9px] text-zinc-500 leading-snug">
+                Already paid earlier or returning after payment? Your cart is saved—enter UTR below anytime.
+              </p>
             </div>
 
             <form onSubmit={handleSubmitCardOrder} className="space-y-3">
-              
-              {/* === NAYA PAYMENT & QR CODE BOX === */}
-              <div className="rounded-xl bg-emerald-500/[0.06] border border-emerald-400/30 p-3 space-y-3">
-                <div className="text-center">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 mb-1">
-                    Step 1: Pay {formatINR(cardModalTier.capital, 0)}
-                  </p>
-                  <p className="text-[10px] text-zinc-400">
-                    Scan QR or send to UPI ID below
-                  </p>
-                </div>
-
-                <div className="flex justify-center bg-white p-2 rounded-xl w-fit mx-auto shadow-md">
-                  <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-                      `upi://pay?pa=${VYOM_PAYMENT_UPI}&pn=${VYOM_PAYEE_NAME}&am=${cardModalTier.capital}&cu=INR`
-                    )}`}
-                    alt="Payment QR"
-                    className="w-[130px] h-[130px]"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between gap-2 bg-[#090E0C] rounded-lg px-2.5 py-2 border border-white/[0.08]">
-                  <div className="min-w-0">
-                    <p className="text-[8px] text-zinc-500 uppercase">UPI ID</p>
-                    <p className="font-mono font-extrabold text-white text-sm truncate">{VYOM_PAYMENT_UPI}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(VYOM_PAYMENT_UPI);
-                      triggerHaptic('light');
-                      showToast('UPI ID copied');
-                    }}
-                    className="shrink-0 text-[10px] font-bold text-[#17130A] px-3 py-1.5 rounded-lg bg-[#F1D77A] active:scale-95 transition"
-                  >
-                    Copy
-                  </button>
-                </div>
-
-                <div className="text-center text-[10px] text-[#F1D77A] font-bold border-t border-white/[0.08] pt-2">
-                  Step 2: Enter UTR below
-                </div>
-              </div>
-              {/* === NAYA PAYMENT & QR CODE BOX END === */}
-
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1">
                   Bank UTR / Transaction Reference
@@ -974,7 +1254,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
                   type="text"
                   value={utrInput}
                   onChange={(e) => setUtrInput(e.target.value)}
-                  placeholder="Enter 12-digit UTR number"
+                  placeholder="Enter 12-digit UTR after payment"
                   required
                   minLength={6}
                   className="w-full bg-[#090E0C] border border-white/15 focus:border-[#D4AF37] rounded-xl px-3 py-2.5 text-xs text-white font-mono placeholder-zinc-500 focus:outline-none"
@@ -993,9 +1273,63 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
                 disabled={cardOrderLoading}
                 className="w-full bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold py-2.5 rounded-xl text-xs active:scale-[0.98] transition disabled:opacity-60"
               >
-                {cardOrderLoading ? 'Submitting...' : 'Submit Card Order'}
+                {cardOrderLoading ? 'Submitting Order...' : 'Submit Card Order'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* PENDING CARD VERIFICATION INFO POPUP (2–48 Hours Bank Audit)        */}
+      {/* ===================================================================== */}
+      {pendingInspectItem && (
+        <div
+          onClick={() => setPendingInspectItem(null)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl border border-amber-400/40 bg-[#101714] p-5 space-y-3 shadow-2xl"
+          >
+            <div className="flex items-start justify-between border-b border-white/[0.08] pb-3">
+              <div>
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-amber-300">
+                  Approval Pending
+                </span>
+                <h3 className="text-sm font-extrabold text-white mt-0.5">
+                  {pendingInspectItem.name} Card ({formatINR(pendingInspectItem.capital, 0)})
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingInspectItem(null)}
+                className="w-7 h-7 rounded-full bg-white/[0.07] flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs leading-relaxed text-zinc-300">
+              Your card is currently in <strong className="text-amber-300">Approval Pending</strong>{' '}
+              status. Our admin team is verifying your payment receipt and UTR against bank
+              records—your card will activate within <strong className="text-white">2 to 48 hours</strong>{' '}
+              once verified.
+            </p>
+
+            <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3 text-[11px] font-mono text-zinc-300 space-y-1">
+              <p>Order ID: {pendingInspectItem.orderId || 'N/A'}</p>
+              <p>Submitted UTR: {pendingInspectItem.bankUtr || 'N/A'}</p>
+              <p>Order Total: {formatINR(pendingInspectItem.totalOrderAmount, 0)}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setPendingInspectItem(null)}
+              className="w-full py-2.5 rounded-xl bg-white text-black font-extrabold text-xs active:scale-95 transition"
+            >
+              Got It
+            </button>
           </div>
         </div>
       )}

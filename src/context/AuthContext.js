@@ -8,7 +8,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 const AuthContext = createContext();
@@ -35,20 +35,21 @@ export const AuthProvider = ({ children }) => {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
+    let unsubDoc = null;
+
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (unsubDoc) {
+        unsubDoc();
+        unsubDoc = null;
+      }
+
       if (fbUser) {
         setUser(fbUser);
         try {
           const ref = doc(db, 'users', fbUser.uid);
           const snap = await getDoc(ref);
 
-          if (snap.exists()) {
-            const existing = snap.data();
-            setUserData({
-              ...existing,
-              userIdNumber: existing.userIdNumber || fbUser.uid.slice(0, 8).toUpperCase(),
-            });
-          } else {
+          if (!snap.exists()) {
             const role = fbUser.email === 'admin@vyom.network' ? 'admin' : 'user';
             const isAdmin = role === 'admin';
 
@@ -61,11 +62,15 @@ export const AuthProvider = ({ children }) => {
                 (isAdmin ? 'Admin' : 'VYOM Member'),
               role,
               activeCards: [],
+              activeCardInstances: [],
               cardActivatedAt: {},
               pendingPurchases: [],
+              customDeposits: [],
               availableFund: 0,
               growthBalance: 0,
               settledGrowth: 0,
+              redeemedGross: 0,
+              bonusUnlocked: false,
               lastSettlementAt: new Date().toISOString(),
               referralCode: isAdmin ? 'ADMIN' : generateReferralCode(fbUser.uid),
               referredBy: pendingReferralCode || null,
@@ -87,14 +92,29 @@ export const AuthProvider = ({ children }) => {
                     },
                   ],
               joinDate: new Date().toISOString(),
-              // 👇 YEH 2 FIELDS RULES KE LIYE ZAROORI THE 👇
-              bonusUnlocked: false,
-              redeemedGross: 0,
             };
 
             await setDoc(ref, newUser);
             setUserData(newUser);
           }
+
+          // Real-time listener so Admin approvals appear immediately
+          unsubDoc = onSnapshot(
+            ref,
+            (liveSnap) => {
+              if (liveSnap.exists()) {
+                const liveData = liveSnap.data();
+                setUserData({
+                  ...liveData,
+                  userIdNumber:
+                    liveData.userIdNumber || fbUser.uid.slice(0, 8).toUpperCase(),
+                });
+              }
+            },
+            (snapErr) => {
+              console.error('Firestore live listener error:', snapErr);
+            }
+          );
         } catch (err) {
           console.error('Auth sync error:', err);
         } finally {
@@ -107,7 +127,11 @@ export const AuthProvider = ({ children }) => {
       }
       setAuthLoading(false);
     });
-    return () => unsub();
+
+    return () => {
+      if (unsubDoc) unsubDoc();
+      unsub();
+    };
   }, []);
 
   const signup = async (email, password, fullName, refCode = null) => {
@@ -150,47 +174,95 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // ─── FIXED SUBMIT CARD ORDER ───
-  const submitCardOrder = async (tierObj, bankUtr) => {
+  // Supports both a single tier object and a bundled array of cart items
+  const submitCardOrder = async (tierOrCartItems, bankUtr) => {
     if (!user) return { error: 'Not logged in' };
 
-    const cleanUtr = String(bankUtr || '').trim();
-    if (cleanUtr.length < 6) {
-      return { error: 'Please enter a valid UTR / transaction reference (min 6 characters).' };
+    const cleanUtr = String(bankUtr || '').trim().replace(/\s+/g, '');
+    if (!/^\d{12}$/.test(cleanUtr) && cleanUtr.length < 6) {
+      return {
+        error: 'Please enter a valid 12-digit Bank UTR / transaction reference.',
+      };
     }
 
-    const tierMeta = TIER_CONFIG[tierObj?.id] || tierObj || TIER_CONFIG.starter;
+    const rawItems = Array.isArray(tierOrCartItems)
+      ? tierOrCartItems
+      : [
+          {
+            tier: TIER_CONFIG[tierOrCartItems?.id] || tierOrCartItems || TIER_CONFIG.starter,
+            qty: 1,
+          },
+        ];
+
+    const normalizedItems = rawItems
+      .map((entry) => {
+        const src = entry?.tier || entry || TIER_CONFIG.starter;
+        const meta = TIER_CONFIG[src?.id] || src;
+        const qty = Math.max(1, parseInt(entry?.qty ?? 1, 10) || 1);
+        const capital = Number(meta?.capital) || 2000;
+        const monthlyRate = Number(meta?.monthlyRate) || 0.035;
+        return {
+          cardId: meta?.id || 'starter',
+          cardName: meta?.name || 'Starter',
+          capital,
+          monthlyRate,
+          qty,
+          lineTotal: capital * qty,
+        };
+      })
+      .filter((item) => item.qty > 0);
+
+    if (normalizedItems.length === 0) {
+      return { error: 'Please select at least one Capital Card in your cart.' };
+    }
+
+    const totalAmount = normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0);
+    const primaryItem = normalizedItems[0];
+    const cardSummaryLabel = normalizedItems
+      .map((item) => (item.qty > 1 ? `${item.cardName} ×${item.qty}` : item.cardName))
+      .join(' + ');
 
     try {
       const ref = doc(db, 'users', user.uid);
-      
-      // 🔥 FRESH DATA FETCH (Rules pass karne ke liye zaroori hai)
       const snap = await getDoc(ref);
       if (!snap.exists()) return { error: 'User document not found' };
       const freshData = snap.data();
 
-      const pendingList = Array.isArray(freshData.pendingPurchases) ? freshData.pendingPurchases : [];
+      const pendingList = Array.isArray(freshData.pendingPurchases)
+        ? freshData.pendingPurchases
+        : [];
       const historyList = Array.isArray(freshData.history) ? freshData.history : [];
+
+      // Prevent duplicate UTR submission on the same account
+      const duplicateUtr = pendingList.some(
+        (ord) => String(ord?.bankUtr || '').trim() === cleanUtr
+      );
+      if (duplicateUtr) {
+        return {
+          error: 'This UTR has already been submitted on your account for review.',
+        };
+      }
 
       const now = new Date().toISOString();
       const orderId = 'ORD-' + Date.now().toString(36).toUpperCase();
 
       const newOrder = {
         orderId,
-        type: 'card_purchase', // 🔥 RULES REQUIREMENT
-        cardId: tierMeta.id,
-        cardName: tierMeta.name,
-        amount: Number(tierMeta.capital) || 2000,
-        lockedRate: Number(tierMeta.monthlyRate) || 0.035,
+        type: 'card_purchase',
+        cardId: primaryItem.cardId,
+        cardName: cardSummaryLabel,
+        items: normalizedItems,
+        amount: totalAmount,
+        lockedRate: Number(primaryItem.monthlyRate) || 0.035,
         bankUtr: cleanUtr,
         status: 'pending',
         requestedAt: now,
       };
 
       const historyEntry = {
-        type: `Card Order Submitted: ${newOrder.cardName}`,
-        detail: `UTR ${cleanUtr} submitted for ₹${newOrder.amount.toLocaleString('en-IN')} card activation.`,
-        amount: newOrder.amount,
+        type: `Card Order Submitted: ${cardSummaryLabel}`,
+        detail: `UTR ${cleanUtr} submitted for ${cardSummaryLabel} (₹${totalAmount.toLocaleString('en-IN')}) — Approval Pending (2–48h bank verification).`,
+        amount: totalAmount,
         refId: orderId,
         status: 'Pending',
         date: now,
@@ -216,35 +288,33 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // ─── FIXED REQUEST WITHDRAWAL ───
   const requestWithdrawal = async (amount, destinationUpi) => {
     if (!user) return { error: 'Not logged in' };
-    const cleanUpi = String(destinationUpi || '').trim();
-    const numericAmount = Number(amount);
 
-    if (!cleanUpi || !cleanUpi.includes('@')) {
-      return { error: 'Please enter a valid UPI ID (e.g., name@upi).' };
-    }
-    
-    // 🔥 MINIMUM ₹500 RULE
+    const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount) || numericAmount < 500) {
       return { error: 'Minimum withdrawal amount is ₹500.' };
     }
 
     try {
       const ref = doc(db, 'users', user.uid);
-      
-      // 🔥 FRESH DATA FETCH
       const snap = await getDoc(ref);
       if (!snap.exists()) return { error: 'User document not found' };
       const freshData = snap.data();
+
+      const cleanUpi = String(destinationUpi || freshData?.upiId || userData?.upiId || '').trim();
+      if (!cleanUpi || !cleanUpi.includes('@')) {
+        return { error: 'Please enter a valid UPI ID (e.g., name@upi).' };
+      }
 
       const available = Number(freshData?.availableFund ?? 0);
       if (numericAmount > available) {
         return { error: 'Requested amount exceeds available balance.' };
       }
 
-      const pendingRedeems = Array.isArray(freshData.pendingRedeems) ? freshData.pendingRedeems : [];
+      const pendingRedeems = Array.isArray(freshData.pendingRedeems)
+        ? freshData.pendingRedeems
+        : [];
       const historyList = Array.isArray(freshData.history) ? freshData.history : [];
       const currentRedeemedGross = Number(freshData.redeemedGross ?? 0);
 
@@ -273,7 +343,7 @@ export const AuthProvider = ({ children }) => {
 
       const nextRedeems = [newRedeem, ...pendingRedeems];
       const nextHistory = [historyEntry, ...historyList];
-      const nextRedeemedGross = currentRedeemedGross + numericAmount; // 🔥 RULES REQUIREMENT
+      const nextRedeemedGross = currentRedeemedGross + numericAmount;
 
       await updateDoc(ref, {
         upiId: cleanUpi,
