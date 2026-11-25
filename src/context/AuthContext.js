@@ -8,7 +8,14 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import {
+  doc,
+  setDoc,
+  getDoc,
+  updateDoc,
+  onSnapshot,
+  runTransaction,
+} from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 const AuthContext = createContext();
@@ -21,6 +28,9 @@ export const TIER_CONFIG = {
   prime: { id: 'prime', name: 'Prime', capital: 50000, monthlyRate: 0.07 },
   signature: { id: 'signature', name: 'Signature', capital: 100000, monthlyRate: 0.08 },
 };
+
+const MAX_PENDING_ORDERS = 3;
+const MAX_PENDING_REDEEMS = 3;
 
 let pendingSignupName = null;
 let pendingReferralCode = null;
@@ -165,9 +175,24 @@ export const AuthProvider = ({ children }) => {
   const updateProfile = async (fields) => {
     if (!user) return { error: 'Not logged in' };
     try {
+      // Whitelist only safe profile fields
+      const safeFields = {};
+      if (typeof fields.fullName === 'string') {
+        safeFields.fullName = fields.fullName.trim().slice(0, 80);
+      }
+      if (typeof fields.phone === 'string') {
+        safeFields.phone = fields.phone.trim().slice(0, 20);
+      }
+      if (typeof fields.upiId === 'string') {
+        safeFields.upiId = fields.upiId.trim().slice(0, 80);
+      }
+      if (typeof fields.profileCompleted === 'boolean') {
+        safeFields.profileCompleted = fields.profileCompleted;
+      }
+
       const ref = doc(db, 'users', user.uid);
-      await updateDoc(ref, fields);
-      setUserData((prev) => ({ ...(prev || {}), ...fields }));
+      await updateDoc(ref, safeFields);
+      setUserData((prev) => ({ ...(prev || {}), ...safeFields }));
       return { success: true };
     } catch (err) {
       return { error: err.message };
@@ -178,10 +203,10 @@ export const AuthProvider = ({ children }) => {
   const submitCardOrder = async (tierOrCartItems, bankUtr) => {
     if (!user) return { error: 'Not logged in' };
 
-    const cleanUtr = String(bankUtr || '').trim().replace(/\s+/g, '');
-    if (!/^\d{12}$/.test(cleanUtr) && cleanUtr.length < 6) {
+    const cleanUtr = String(bankUtr || '').trim().replace(/\s+/g, '').toUpperCase();
+    if (!/^[A-Z0-9]{6,32}$/.test(cleanUtr)) {
       return {
-        error: 'Please enter a valid 12-digit Bank UTR / transaction reference.',
+        error: 'Please enter a valid 12-digit Bank UTR / transaction reference (letters/digits only).',
       };
     }
 
@@ -198,7 +223,7 @@ export const AuthProvider = ({ children }) => {
       .map((entry) => {
         const src = entry?.tier || entry || TIER_CONFIG.starter;
         const meta = TIER_CONFIG[src?.id] || src;
-        const qty = Math.max(1, parseInt(entry?.qty ?? 1, 10) || 1);
+        const qty = Math.max(1, Math.min(20, parseInt(entry?.qty ?? 1, 10) || 1));
         const capital = Number(meta?.capital) || 2000;
         const monthlyRate = Number(meta?.monthlyRate) || 0.035;
         return {
@@ -223,26 +248,8 @@ export const AuthProvider = ({ children }) => {
       .join(' + ');
 
     try {
-      const ref = doc(db, 'users', user.uid);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) return { error: 'User document not found' };
-      const freshData = snap.data();
-
-      const pendingList = Array.isArray(freshData.pendingPurchases)
-        ? freshData.pendingPurchases
-        : [];
-      const historyList = Array.isArray(freshData.history) ? freshData.history : [];
-
-      // Prevent duplicate UTR submission on the same account
-      const duplicateUtr = pendingList.some(
-        (ord) => String(ord?.bankUtr || '').trim() === cleanUtr
-      );
-      if (duplicateUtr) {
-        return {
-          error: 'This UTR has already been submitted on your account for review.',
-        };
-      }
-
+      const userRef = doc(db, 'users', user.uid);
+      const utrRef = doc(db, 'used_utrs', cleanUtr);
       const now = new Date().toISOString();
       const orderId = 'ORD-' + Date.now().toString(36).toUpperCase();
 
@@ -268,18 +275,52 @@ export const AuthProvider = ({ children }) => {
         date: now,
       };
 
-      const nextPending = [newOrder, ...pendingList];
-      const nextHistory = [historyEntry, ...historyList];
+      // Atomic transaction: blocks global duplicate UTRs & enforces max 3 pending orders
+      const result = await runTransaction(db, async (tx) => {
+        const userSnap = await tx.get(userRef);
+        if (!userSnap.exists()) throw new Error('User document not found');
 
-      await updateDoc(ref, {
-        pendingPurchases: nextPending,
-        history: nextHistory,
+        const utrSnap = await tx.get(utrRef);
+        if (utrSnap.exists()) {
+          throw new Error('This UTR has already been submitted and cannot be reused.');
+        }
+
+        const freshData = userSnap.data();
+        const pendingList = Array.isArray(freshData.pendingPurchases)
+          ? freshData.pendingPurchases
+          : [];
+        const activePendingCount = pendingList.filter((o) => o?.status === 'pending').length;
+
+        if (activePendingCount >= MAX_PENDING_ORDERS) {
+          throw new Error(
+            `Maximum ${MAX_PENDING_ORDERS} pending orders allowed at a time. Please wait for current orders to be verified.`
+          );
+        }
+
+        const historyList = Array.isArray(freshData.history) ? freshData.history : [];
+        const nextPending = [newOrder, ...pendingList];
+        const nextHistory = [historyEntry, ...historyList];
+
+        tx.set(utrRef, {
+          utr: cleanUtr,
+          uid: user.uid,
+          orderId,
+          amount: totalAmount,
+          createdAt: now,
+        });
+
+        tx.update(userRef, {
+          pendingPurchases: nextPending,
+          history: nextHistory,
+        });
+
+        return { nextPending, nextHistory };
       });
 
       setUserData((prev) => ({
         ...(prev || {}),
-        pendingPurchases: nextPending,
-        history: nextHistory,
+        pendingPurchases: result.nextPending,
+        history: result.nextHistory,
       }));
 
       return { success: true, order: newOrder };
@@ -298,69 +339,83 @@ export const AuthProvider = ({ children }) => {
 
     try {
       const ref = doc(db, 'users', user.uid);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) return { error: 'User document not found' };
-      const freshData = snap.data();
-
-      const cleanUpi = String(destinationUpi || freshData?.upiId || userData?.upiId || '').trim();
-      if (!cleanUpi || !cleanUpi.includes('@')) {
-        return { error: 'Please enter a valid UPI ID (e.g., name@upi).' };
-      }
-
-      const available = Number(freshData?.availableFund ?? 0);
-      if (numericAmount > available) {
-        return { error: 'Requested amount exceeds available balance.' };
-      }
-
-      const pendingRedeems = Array.isArray(freshData.pendingRedeems)
-        ? freshData.pendingRedeems
-        : [];
-      const historyList = Array.isArray(freshData.history) ? freshData.history : [];
-      const currentRedeemedGross = Number(freshData.redeemedGross ?? 0);
-
       const now = new Date().toISOString();
       const reqId = 'WDR-' + Date.now().toString(36).toUpperCase();
-      const netPayout = Number((numericAmount * 0.5).toFixed(2));
 
-      const newRedeem = {
-        id: reqId,
-        grossAmount: numericAmount,
-        netPayout,
-        amount: netPayout,
-        destinationUpi: cleanUpi,
-        status: 'pending',
-        requestedAt: now,
-      };
+      const result = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('User document not found');
+        const freshData = snap.data();
 
-      const historyEntry = {
-        type: 'UPI Withdrawal Requested',
-        detail: `Gross ₹${numericAmount.toLocaleString('en-IN')} (50/50 split -> Net ₹${netPayout.toLocaleString('en-IN')}) to ${cleanUpi}.`,
-        amount: -netPayout,
-        refId: reqId,
-        status: 'Pending',
-        date: now,
-      };
+        const cleanUpi = String(
+          destinationUpi || freshData?.upiId || userData?.upiId || ''
+        ).trim();
+        if (!cleanUpi || !/^[a-zA-Z0-9._-]{2,50}@[a-zA-Z0-9.-]{2,30}$/.test(cleanUpi)) {
+          throw new Error('Please enter a valid UPI ID (e.g., name@upi).');
+        }
 
-      const nextRedeems = [newRedeem, ...pendingRedeems];
-      const nextHistory = [historyEntry, ...historyList];
-      const nextRedeemedGross = currentRedeemedGross + numericAmount;
+        const pendingRedeems = Array.isArray(freshData.pendingRedeems)
+          ? freshData.pendingRedeems
+          : [];
+        const activeRedeemCount = pendingRedeems.filter((r) => r?.status === 'pending').length;
+        if (activeRedeemCount >= MAX_PENDING_REDEEMS) {
+          throw new Error(`Maximum ${MAX_PENDING_REDEEMS} pending withdrawal requests allowed.`);
+        }
 
-      await updateDoc(ref, {
-        upiId: cleanUpi,
-        pendingRedeems: nextRedeems,
-        history: nextHistory,
-        redeemedGross: nextRedeemedGross,
+        const lockedPendingGross = pendingRedeems
+          .filter((r) => r?.status === 'pending')
+          .reduce((sum, r) => sum + (Number(r?.grossAmount) || 0), 0);
+
+        const available = Number(freshData?.availableFund ?? 0) - lockedPendingGross;
+        if (numericAmount > available) {
+          throw new Error('Requested amount exceeds available unlocked balance.');
+        }
+
+        const historyList = Array.isArray(freshData.history) ? freshData.history : [];
+        const currentRedeemedGross = Number(freshData.redeemedGross ?? 0);
+
+        const newRedeem = {
+          id: reqId,
+          grossAmount: numericAmount,
+          netPayout: numericAmount,
+          amount: numericAmount,
+          destinationUpi: cleanUpi,
+          status: 'pending',
+          requestedAt: now,
+        };
+
+        const historyEntry = {
+          type: 'UPI Withdrawal Requested',
+          detail: `Amount ₹${numericAmount.toLocaleString('en-IN')} requested to ${cleanUpi}.`,
+          amount: -numericAmount,
+          refId: reqId,
+          status: 'Pending',
+          date: now,
+        };
+
+        const nextRedeems = [newRedeem, ...pendingRedeems];
+        const nextHistory = [historyEntry, ...historyList];
+        const nextRedeemedGross = currentRedeemedGross + numericAmount;
+
+        tx.update(ref, {
+          upiId: cleanUpi,
+          pendingRedeems: nextRedeems,
+          history: nextHistory,
+          redeemedGross: nextRedeemedGross,
+        });
+
+        return { cleanUpi, nextRedeems, nextHistory, nextRedeemedGross, newRedeem };
       });
 
       setUserData((prev) => ({
         ...(prev || {}),
-        upiId: cleanUpi,
-        pendingRedeems: nextRedeems,
-        history: nextHistory,
-        redeemedGross: nextRedeemedGross,
+        upiId: result.cleanUpi,
+        pendingRedeems: result.nextRedeems,
+        history: result.nextHistory,
+        redeemedGross: result.nextRedeemedGross,
       }));
 
-      return { success: true, request: newRedeem };
+      return { success: true, request: result.newRedeem };
     } catch (err) {
       return { error: err.message || 'Could not submit withdrawal request.' };
     }

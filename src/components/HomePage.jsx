@@ -272,8 +272,6 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
     ? `@${tgUser.username}`
     : user?.email || userIdentityLine;
 
-  const userSplitPct = Math.round((Number(PROFIT_SPLIT) || 0.5) * 100);
-  const platformSplitPct = 100 - userSplitPct;
 
   const ownedCardIds = useMemo(() => {
     return Array.isArray(activeProfile?.activeCards) ? activeProfile.activeCards : [];
@@ -1512,9 +1510,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
                     {formatINR(withdrawableBalance, 2)}
                   </strong>
                 </p>
-                <p className="text-[10px] text-zinc-400">
-                  Profit Split: {userSplitPct}% You / {platformSplitPct}% VYOM Network.
-                </p>
+                
               </div>
 
               <div>
@@ -1810,16 +1806,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
               </button>
             </div>
 
-            <div className="rounded-xl bg-[#090E0C] border border-emerald-400/25 p-3.5 space-y-1.5">
-              <h4 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider">
-                1. {userSplitPct}/{platformSplitPct} Profit Sharing
-              </h4>
-              <p className="text-[11px] leading-relaxed text-zinc-300">
-                Profit is shared clearly: <strong>{userSplitPct}% belongs to you</strong> and{' '}
-                <strong>{platformSplitPct}% goes to VYOM Network</strong> at withdrawal.
-              </p>
-            </div>
-
+            
             <div className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3.5 space-y-1.5">
               <h4 className="text-xs font-extrabold text-emerald-300 uppercase tracking-wider">
                 2. Capital Cards (No Limit)

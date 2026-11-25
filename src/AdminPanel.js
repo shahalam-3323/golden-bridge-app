@@ -66,7 +66,7 @@ export default function AdminPanel() {
 
   const pendingRedeems = allRedeemRequests.filter((r) => r.status === 'pending');
 
-  const handleApproveOrder = async (order) => {
+    const handleApproveOrder = async (order) => {
     setActionLoading(true);
     setActionError('');
 
@@ -76,20 +76,33 @@ export default function AdminPanel() {
 
       const activeList = Array.isArray(user.activeCards) ? user.activeCards : [];
       const now = new Date().toISOString();
+      
       const updatedPurchases = (user.pendingPurchases || []).map((p, idx) =>
         idx === order.idxInUserArray ? { ...p, status: 'approved', reviewedAt: now } : p
       );
 
       const shouldRewardReferral = !user.referralRewarded && Boolean(user.referredBy);
-      const updatedCards = [...activeList, order.cardId];
-      const updatedTimestamps = {
-        ...(user.cardActivatedAt || {}),
-        [order.cardId]: now,
-      };
+      
+      // 🔥 FIX: Purane orders ke liye fallback, naye cart orders ke liye items array read karo
+      const itemsToActivate = Array.isArray(order.items) && order.items.length > 0 
+        ? order.items 
+        : [{ cardId: order.cardId, qty: 1 }];
+
+      const updatedCards = [...activeList];
+      const updatedTimestamps = { ...(user.cardActivatedAt || {}) };
+
+      // 🔥 FIX: Har item aur uski qty ke hisaab se card push karo
+      itemsToActivate.forEach((item) => {
+        const qty = Number(item.qty) || 1;
+        for (let i = 0; i < qty; i++) {
+          updatedCards.push(item.cardId);
+        }
+        updatedTimestamps[item.cardId] = now;
+      });
 
       const logEntry = {
         type: `Card Activated by Bank Audit: ${order.cardName}`,
-        detail: `Verified Payment of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Card activated (${updatedCards.length} total cards).`,
+        detail: `Verified Payment of ₹${fmt(order.amount)} (UTR: ${order.bankUtr}). Cards activated successfully.`,
         amount: order.amount,
         refId: order.orderId,
         status: 'Approved',
@@ -103,6 +116,8 @@ export default function AdminPanel() {
         pendingPurchases: updatedPurchases,
         history: [logEntry, ...(user.history || [])],
       });
+
+      // ... (tumhara referral reward ka code waisa hi rahega, use mat chhedna) ...
 
       if (shouldRewardReferral) {
         try {
@@ -220,7 +235,7 @@ export default function AdminPanel() {
 
       const historyEntry = {
         type: 'Settlement Completed via Bank Transfer',
-        detail: `Net Payout of ₹${fmt(request.amount || request.netPayout)} dispatched to ${
+detail: `Payout of ₹${fmt(request.amount)} dispatched to ${...}`
           request.destinationUpi || request.userUpiId
         }. Bank UTR: ${bankUtr.trim()}`,
         amount: -(request.amount || request.netPayout),
