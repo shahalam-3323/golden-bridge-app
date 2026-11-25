@@ -14,16 +14,31 @@ import {
   ArrowUpRight,
   CheckCircle2,
   Send,
-  Sparkles,
   AlertCircle,
 } from 'lucide-react';
 
 // ==========================================
-// PAYMENT DETAILS
+// PAYMENT DETAILS & STORAGE KEYS
 // ==========================================
 const VYOM_PAYMENT_UPI = '9808669522@ybl';
 const VYOM_PAYEE_NAME = 'SHAH ALAM ANSARI';
 const CART_STORAGE_KEY = 'vyom_cart_checkout_v1';
+const NOTIF_READ_STORAGE_KEY = 'vyom_notif_last_seen_v1';
+
+const DAILY_INSIGHTS = [
+  {
+    title: 'Daily Vault Tip • Compounding Consistency',
+    desc: 'Active Capital Cards generate steady daily yield tracking. Keep your linked UPI updated in Profile for smooth 2–48h payouts.',
+  },
+  {
+    title: 'VYOM Network Update • Instant UTR Audit',
+    desc: 'Always submit your exact 12-digit Bank UTR right after UPI payment so our audit team can verify and activate your card faster.',
+  },
+  {
+    title: 'Grow With Your Network • 2-Tier Rewards',
+    desc: 'Invite friends using your personal referral code in the Network tab to unlock Level 1 & Level 2 bonus rewards.',
+  },
+];
 
 const DEFAULT_TIERS = [
   {
@@ -115,6 +130,13 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
   const [isRulesOpen, setIsRulesOpen] = useState(false);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
   const [policyTab, setPolicyTab] = useState('terms');
+  const [lastSeenNotifSig, setLastSeenNotifSig] = useState(() => {
+    try {
+      return localStorage.getItem(NOTIF_READ_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
 
   // Card Checkout Cart & UTR Recovery State (QR hidden; UPI Intent + Copy fallback)
   const [isCardModalOpen, setIsCardModalOpen] = useState(false);
@@ -446,25 +468,102 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
   const referralEarnings = Number(activeProfile?.referralEarnings ?? 0);
 
   const notifications = useMemo(() => {
-    return [
-      {
-        id: 'card-portfolio-note',
-        title: 'Capital Cards Ready',
-        desc: 'Choose any of the 5 Capital Cards anytime to grow your capital.',
-        time: 'Network',
-        unread: ownedCardIds.length === 0,
-      },
-      {
-        id: 'settlement-window',
-        title: 'UPI Payout Desk Active',
-        desc: 'All approved withdrawals reach your linked UPI within 2–48 hours.',
-        time: 'System',
-        unread: false,
-      },
-    ];
-  }, [ownedCardIds.length]);
+    const items = [];
 
-  const unreadCount = notifications.filter((n) => n.unread).length;
+    // 1. Pending Card Orders (Explains clearly why each card is pending)
+    const pendingList = Array.isArray(activeProfile?.pendingPurchases)
+      ? activeProfile.pendingPurchases.filter((p) => p?.status === 'pending')
+      : [];
+
+    pendingList.forEach((ord) => {
+      items.push({
+        id: `pending-${ord.orderId}`,
+        category: 'Action & Audit',
+        tone: 'amber',
+        title: `Card Pending Verification • ${ord.cardName || 'Capital Card'}`,
+        desc: `Order ${ord.orderId} (${formatINR(ord.amount, 0)}) is currently Approval Pending because our audit team is verifying your Bank UTR (${ord.bankUtr || 'submitted'}) with bank records. Activation completes within 2 to 48 hours.`,
+        time: ord.requestedAt
+          ? new Date(ord.requestedAt).toLocaleTimeString('en-IN', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          : 'In Review',
+      });
+    });
+
+    // 2. Recent Account Activities (Card activations, withdrawals, etc.)
+    const rawHistory = Array.isArray(activeProfile?.history) ? activeProfile.history : [];
+    rawHistory.slice(0, 6).forEach((h, idx) => {
+      const titleText = h.type || 'Account Activity';
+      const lower = titleText.toLowerCase();
+      if (lower.includes('order submitted')) return;
+      items.push({
+        id: h.refId || `act-${idx}`,
+        category: lower.includes('activated')
+          ? 'Card Active'
+          : lower.includes('withdraw')
+            ? 'Payout'
+            : 'Activity',
+        tone: lower.includes('activated') ? 'emerald' : 'gold',
+        title: titleText,
+        desc: h.detail || 'Recorded on your VYOM account.',
+        time: h.date
+          ? new Date(h.date).toLocaleDateString('en-IN', {
+              day: 'numeric',
+              month: 'short',
+            })
+          : 'Recent',
+      });
+    });
+
+    // 3. Daily Platform Note (Rotates automatically by day of year)
+    const dayIndex = Math.floor(Date.now() / 86400000) % DAILY_INSIGHTS.length;
+    const dailyNote = DAILY_INSIGHTS[dayIndex];
+    items.push({
+      id: `daily-note-${dayIndex}`,
+      category: 'Daily Update',
+      tone: 'blue',
+      title: dailyNote.title,
+      desc: dailyNote.desc,
+      time: 'Today',
+    });
+
+    // 4. Welcome / Signup Congratulation Message
+    items.push({
+      id: 'welcome-congrats',
+      category: 'Welcome',
+      tone: 'emerald',
+      title: `Congratulations ${displayName}! Welcome to VYOM`,
+      desc: 'Your VYOM Network account is verified and ready. Select any Capital Card anytime to start growing your capital.',
+      time: activeProfile?.joinDate
+        ? new Date(activeProfile.joinDate).toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'short',
+          })
+        : 'Joined',
+    });
+
+    return items;
+  }, [activeProfile, displayName]);
+
+  const notifSignature = useMemo(
+    () => notifications.map((n) => n.id).join('|'),
+    [notifications]
+  );
+
+  const hasUnreadNotifications =
+    notifications.length > 0 && lastSeenNotifSig !== notifSignature;
+
+  const handleOpenNotifications = () => {
+    triggerHaptic('medium');
+    setIsNotifOpen(true);
+    setLastSeenNotifSig(notifSignature);
+    try {
+      localStorage.setItem(NOTIF_READ_STORAGE_KEY, notifSignature);
+    } catch {
+      // Ignore storage errors
+    }
+  };
 
   const ledgerItems = useMemo(() => {
     const rawHistory = Array.isArray(activeProfile?.history) ? activeProfile.history : [];
@@ -763,16 +862,27 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
 
           <button
             type="button"
-            onClick={() => {
-              triggerHaptic('light');
-              setIsNotifOpen(true);
-            }}
+            onClick={handleOpenNotifications}
             aria-label="Notifications"
-            className="relative w-9 h-9 rounded-full border border-white/[0.09] bg-white/[0.035] flex items-center justify-center text-[#C6CFC8] hover:border-[#D4AF37]/50 hover:text-white transition active:scale-95"
+            className={`relative h-9 px-2.5 rounded-full border flex items-center gap-1.5 transition active:scale-95 ${
+              hasUnreadNotifications
+                ? 'border-emerald-400/60 bg-emerald-500/[0.12] text-white shadow-[0_0_18px_rgba(52,211,153,0.28)]'
+                : 'border-white/[0.09] bg-white/[0.035] text-[#C6CFC8] hover:border-[#D4AF37]/50 hover:text-white'
+            }`}
           >
-            <Bell className="w-4 h-4" />
-            {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[#F0A818]" />
+            <Bell
+              className={`w-4 h-4 ${
+                hasUnreadNotifications ? 'text-emerald-300' : 'text-current'
+              }`}
+            />
+            <span className="text-[10px] font-extrabold font-mono text-emerald-300">
+              {notifications.length}
+            </span>
+            {hasUnreadNotifications && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400 border border-[#090D0C]" />
+              </span>
             )}
           </button>
 
@@ -794,31 +904,32 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
       {/* ===================================================================== */}
       <main className="flex-1 w-full max-w-md mx-auto px-4 flex flex-col justify-center overflow-hidden relative z-10">
         {activeTab === 'dashboard' && (
-          <div className="flex flex-col justify-between h-full max-h-[530px] py-1 space-y-3">
-            {/* SILVER-PLATINUM METALLIC CARD (High-Contrast Numbers, No Heartbeat) */}
-            <section className="rounded-3xl border border-white/75 bg-gradient-to-br from-[#F8FAFC] via-[#E2E8F0] to-[#CBD5E1] p-5 shadow-[0_22px_50px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.95)] flex flex-col justify-between relative overflow-hidden">
+          <div className="flex flex-col justify-between h-full max-h-[530px] py-1 space-y-3 overflow-y-auto">
+            {/* SILVER-PLATINUM METALLIC CARD: Growth + Actual Capital + Total Profit */}
+            <section className="rounded-3xl border border-white/75 bg-gradient-to-br from-[#F8FAFC] via-[#E2E8F0] to-[#CBD5E1] p-5 shadow-[0_22px_50px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.95)] flex flex-col justify-between relative overflow-hidden shrink-0">
               <div className="absolute -top-12 -right-12 w-36 h-36 rounded-full bg-white/50 blur-2xl pointer-events-none" />
 
               <div className="flex items-center justify-between relative z-10">
                 <span className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-600">
-                  Total Balance
+                  Live Growth
                 </span>
                 <span className="rounded-full border border-slate-900/15 bg-slate-900/[0.06] px-2.5 py-0.5 text-[10px] font-extrabold text-slate-900">
-                  {totalOwnedCards > 0 ? `${activeTier.name} Card` : 'No Card Active'}
+                  {totalOwnedCards > 0
+                    ? `${totalOwnedCards} Card${totalOwnedCards > 1 ? 's' : ''} Active`
+                    : pendingCardOrdersCount > 0
+                      ? 'Pending Verification'
+                      : 'No Card Active'}
                 </span>
               </div>
 
-              <div className="my-5 text-center relative z-10">
-                <p className="font-mono text-[clamp(32px,9.5vw,42px)] font-black tracking-tight text-slate-950 leading-none tabular-nums">
-                  {formatINR(liveMetrics.liveTotal, 2)}
+              <div className="my-4 text-center relative z-10">
+                <p className="font-mono text-[clamp(30px,9vw,40px)] font-black tracking-tight text-slate-950 leading-none tabular-nums">
+                  +{formatINR(liveMetrics.liveDelta, 2)}
+                  <span className="text-xs font-bold text-slate-600"> / day</span>
                 </p>
 
-                <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-slate-900/[0.07] border border-slate-900/10 px-3 py-1 text-[11px] font-bold">
+                <div className="mt-2.5 inline-flex items-center gap-2 rounded-full bg-slate-900/[0.08] border border-slate-900/10 px-3 py-1 text-[11px] font-bold">
                   <span className="text-emerald-700 font-mono">
-                    +{formatINR(liveMetrics.liveDelta, 2)}
-                  </span>
-                  <span className="text-slate-400">•</span>
-                  <span className="text-slate-800 font-mono">
                     {liveMetrics.liveRatePct}% / mo
                   </span>
                 </div>
@@ -826,7 +937,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
 
               <div className="pt-3 border-t border-slate-900/10 grid grid-cols-2 gap-2 text-[10px] relative z-10">
                 <div>
-                  <span className="block font-semibold text-slate-600">Your Capital</span>
+                  <span className="block font-semibold text-slate-600">Total Capital</span>
                   <span className="font-mono font-black text-slate-950 text-xs tabular-nums">
                     {formatINR(effectiveBase, 0)}
                   </span>
@@ -840,43 +951,72 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
               </div>
             </section>
 
-            {/* READY TO WITHDRAW STRIP */}
-            <section className="rounded-2xl border border-[#D4AF37]/30 bg-gradient-to-r from-[#D4AF37]/[0.11] via-[#121A17] to-[#101714] px-4 py-3 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="w-8 h-8 rounded-xl border border-[#D4AF37]/40 bg-[#D4AF37]/15 flex items-center justify-center text-[#F1D77A] shrink-0">
-                  <Sparkles className="w-4 h-4" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-xs font-extrabold text-white truncate">
-                    Ready to Withdraw: {formatINR(withdrawableBalance, 0)}
-                  </p>
-                  <p className="text-[10px] text-[#B9C2BC] truncate">
-                    {pendingCardOrdersCount > 0
-                      ? `${pendingCardOrdersCount} order(s) under 2–48h audit • `
-                      : ''}
-                    Direct UPI payout • 2–48h
-                  </p>
+            {/* YOUR PURCHASED CARDS ON HOME (Pending & Active) */}
+            {portfolioCards.length > 0 && (
+              <section className="rounded-2xl border border-white/[0.08] bg-[#101714] p-3 space-y-2 shrink-0">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-extrabold text-white">
+                    Your Cards ({portfolioCards.length})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('cards')}
+                    className="text-[10px] font-bold text-[#F1D77A] hover:underline"
+                  >
+                    Manage
+                  </button>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleOpenWithdraw}
-                className="shrink-0 rounded-full border border-[#D4AF37]/45 bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 px-3 py-1 text-[10px] font-extrabold text-[#F1D77A] active:scale-95 transition"
-              >
-                Withdraw
-              </button>
-            </section>
+
+                <div className="flex gap-2 overflow-x-auto pb-0.5">
+                  {portfolioCards.map((pc) => {
+                    const isPending = pc.status === 'pending';
+                    return (
+                      <button
+                        key={pc.uid}
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic('light');
+                          setSelectedCardId(pc.cardId);
+                          if (isPending) setPendingInspectItem(pc);
+                        }}
+                        className={`shrink-0 rounded-xl border px-3 py-2 text-left min-w-[140px] transition active:scale-95 ${
+                          isPending
+                            ? 'border-amber-400/45 bg-amber-500/[0.08]'
+                            : 'border-emerald-400/35 bg-emerald-500/[0.07]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-xs font-extrabold text-white truncate">
+                            {pc.name}
+                          </span>
+                          <span
+                            className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                              isPending
+                                ? 'bg-amber-400/20 text-amber-300'
+                                : 'bg-emerald-400/20 text-emerald-300'
+                            }`}
+                          >
+                            {isPending ? 'Pending' : 'Active'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-mono font-bold text-zinc-200 mt-1">
+                          {formatINR(pc.capital, 0)}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             {/* PRIMARY ACTION BUTTON */}
             <button
               type="button"
               onClick={() => handleOpenCardOrder(activeTier)}
-              className="w-full min-h-[46px] bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold py-3 px-4 rounded-xl text-xs shadow-[0_8px_25px_rgba(212,175,55,0.22),inset_0_1px_0_rgba(255,255,255,0.45)] active:scale-[0.98] transition flex items-center justify-center gap-2"
+              className="w-full min-h-[46px] bg-gradient-to-r from-[#F1D77A] via-[#D8B342] to-[#B98513] text-[#17130A] font-extrabold py-3 px-4 rounded-xl text-xs shadow-[0_8px_25px_rgba(212,175,55,0.22),inset_0_1px_0_rgba(255,255,255,0.45)] active:scale-[0.98] transition flex items-center justify-center gap-2 shrink-0"
             >
               <CreditCard className="w-4 h-4" />
-              <span>
-                Buy Capital Card{totalOwnedCards > 0 ? ` (${totalOwnedCards} Active)` : ''}
-              </span>
+              <span>Buy Capital Card</span>
             </button>
           </div>
         )}
@@ -1502,7 +1642,7 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
       )}
 
       {/* ===================================================================== */}
-      {/* 7. NOTIFICATIONS MODAL                                                */}
+      {/* 7. NOTIFICATIONS MODAL (Activity Feed + Pending Reason + Daily Note)  */}
       {/* ===================================================================== */}
       {isNotifOpen && (
         <div
@@ -1511,12 +1651,19 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-sm rounded-2xl border border-[#D4AF37]/30 bg-[#101714] p-5 space-y-3 shadow-2xl"
+            className="w-full max-w-sm rounded-2xl border border-emerald-400/35 bg-[#101714] p-5 space-y-3 shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
               <div className="flex items-center gap-2">
-                <Bell className="w-4 h-4 text-[#F0A818]" />
-                <h3 className="text-sm font-extrabold text-white">Notifications</h3>
+                <span className="w-7 h-7 rounded-full bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-300">
+                  <Bell className="w-3.5 h-3.5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white">Activity &amp; Updates</h3>
+                  <p className="text-[10px] text-[#9AA69D]">
+                    Card status, verification updates &amp; daily alerts
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -1526,19 +1673,36 @@ export default function HomePage({ authContext, onOpenDeposit, onOpenWithdraw })
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {notifications.map((n, idx) => (
-                <div
-                  key={n.id || idx}
-                  className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3"
-                >
-                  <div className="flex justify-between text-xs font-bold text-white">
-                    <span>{n.title}</span>
-                    <span className="text-[10px] text-[#7D8A81]">{n.time || ''}</span>
+
+            <div className="space-y-2.5 max-h-80 overflow-y-auto pr-0.5">
+              {notifications.map((n, idx) => {
+                const badgeStyle =
+                  n.tone === 'amber'
+                    ? 'bg-amber-400/15 text-amber-300 border-amber-400/35'
+                    : n.tone === 'emerald'
+                      ? 'bg-emerald-400/15 text-emerald-300 border-emerald-400/35'
+                      : n.tone === 'blue'
+                        ? 'bg-sky-400/15 text-sky-300 border-sky-400/35'
+                        : 'bg-[#D4AF37]/15 text-[#F1D77A] border-[#D4AF37]/35';
+
+                return (
+                  <div
+                    key={n.id || idx}
+                    className="rounded-xl bg-[#090E0C] border border-white/[0.08] p-3 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${badgeStyle}`}
+                      >
+                        {n.category || 'Update'}
+                      </span>
+                      <span className="text-[9px] font-mono text-[#7D8A81]">{n.time || ''}</span>
+                    </div>
+                    <p className="text-xs font-bold text-white leading-snug">{n.title}</p>
+                    <p className="text-[11px] text-[#A6B0AA] leading-relaxed">{n.desc}</p>
                   </div>
-                  <p className="text-[11px] text-[#9AA69D] mt-1">{n.desc || n.message}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
